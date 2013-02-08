@@ -338,7 +338,7 @@ setMethod("dbGetInfo", "MonetDBResult", def=function(dbObj, ...) {
 
 PROTOCOL_v8 <- 8
 PROTOCOL_v9 <- 9
-MAX_PACKET_SIZE <- 32766 # or 8190?
+MAX_PACKET_SIZE <- 8192 #32766
 
 HASH_ALGOS <- c("md5", "sha1", "crc32", "sha256","sha512")
 
