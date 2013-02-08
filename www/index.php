@@ -3,6 +3,8 @@
 <!-- It can be changed as liked or replaced by other content -->
 
 <?php
+header("Location: https://r-forge.r-project.org/R/?group_id=1534");
+die();
 
 $domain=ereg_replace('[^\.]*\.(.*)$','\1',$_SERVER['HTTP_HOST']);
 $group_name=ereg_replace('([^\.]*)\..*$','\1',$_SERVER['HTTP_HOST']);
