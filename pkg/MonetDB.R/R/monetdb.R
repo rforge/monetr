@@ -1,5 +1,3 @@
-# TODO: test monet.read.csv
-
 require(DBI)
 require(bitops)
 require(digest)
@@ -10,25 +8,18 @@ setOldClass(c("sockconn","connection"))
 ### MonetDBDriver
 setClass("MonetDBDriver", representation("DBIDriver"))
 
-# rename some functions according to their job for profiling
-colstrsplit <- strsplit
-rowstrsplit <- strsplit
-colsubstring <- substring
-tuplesubstring <- substring
-
-setMethod("dbGetInfo", "MonetDBDriver", def=function(dbObj, ...)
-	list(name="MonetDBDriver", 
-			driver.version="0.3.1",
-			DBI.version="0.2-5",
-			client.version=NA,
-			max.connections=NA)
-)
-
 # allow instantiation of this driver with MonetDB to allow existing programs to work
 MonetR <- MonetDB <- MonetDBR <- MonetDB.R <- function() {
 	new("MonetDBDriver")
 }
 
+setMethod("dbGetInfo", "MonetDBDriver", def=function(dbObj, ...)
+			list(name="MonetDBDriver", 
+					driver.version="0.3.1",
+					DBI.version="0.2-5",
+					client.version=NA,
+					max.connections=NA)
+)
 
 setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", password="monetdb",timeout=1000, ...) {
 	if (substring(url,1,10) != "monetdb://") {
@@ -68,6 +59,8 @@ setMethod("dbListTables", "MonetDBConnection", def=function(conn, ...) {
 })
 
 setMethod("dbListFields", "MonetDBConnection", def=function(conn, name, ...) {
+	if (!dbExistsTable(conn,name))
+		stop(paste0("Unknown table: ",name));
 	df <- dbGetQuery(conn,paste0("select columns.name as name from columns join tables on columns.table_id=tables.id where tables.name='",name,"';"))	
 	df$name
 })
@@ -78,16 +71,19 @@ setMethod("dbExistsTable", "MonetDBConnection", def=function(conn, name, ...) {
 
 
 setMethod("dbReadTable", "MonetDBConnection", def=function(conn, name, ...) {
-			dbGetQuery(conn, paste0("SELECT * FROM ",name))
-		})
+	if (!dbExistsTable(conn,name))
+		stop(paste0("Unknown table: ",name));
+	dbGetQuery(conn, paste0("SELECT * FROM ",name))
+})
 
 setMethod("dbGetQuery", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ...) {
-			r <- dbSendQuery(conn, statement, ...)
-			res <- fetch(r,-1)
-
-			dbClearResult(r)
-			return(res)
-		})
+	res <- dbSendQuery(conn, statement, ...)
+	if (!res@env$success) 
+		stop(paste0("Unable to execute statement '",statement,"'. Server says '",res@env$message,"'."))
+	data <- fetch(res,-1)
+	dbClearResult(res)
+	return(data)
+})
 
 # This one does all the work in this class
 setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL) {
@@ -122,7 +118,6 @@ setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="characte
 		env$message <- resp$message
 	}
 	return(new("MonetDBResult",env=env))
-	
 })
 
 
@@ -155,20 +150,19 @@ setMethod("dbWriteTable", "MonetDBConnection", def=function(conn, name, value, o
 })
 
 
-setMethod("dbDataType", signature(dbObj="MonetDBConnection", obj = "ANY"),
-		def = function(dbObj, obj, ...) {
-			if (is.logical(obj)) "BOOLEAN"
-			else if (is.integer(obj)) "INTEGER"
-			else if (is.numeric(obj)) "DOUBLE PRECISION"
-			else "VARCHAR(255)"
-		}, valueClass = "character")
+setMethod("dbDataType", signature(dbObj="MonetDBConnection", obj = "ANY"), def = function(dbObj, obj, ...) {
+	if (is.logical(obj)) "BOOLEAN"
+	else if (is.integer(obj)) "INTEGER"
+	else if (is.numeric(obj)) "DOUBLE PRECISION"
+	else "VARCHAR(255)"
+}, valueClass = "character")
 
 
 setMethod("dbRemoveTable", "MonetDBConnection", def=function(conn, name, ...) dbSendUpdate(conn, paste("DROP TABLE", name)))
 
 # for compatibility with RMonetDB (and dbWriteTable support), we will allow parameters to this method, but will not use prepared statements internally
 if (is.null(getGeneric("dbSendUpdate"))) setGeneric("dbSendUpdate", function(conn, statement, ...) standardGeneric("dbSendUpdate"))
-setMethod("dbSendUpdate",  signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL) {
+setMethod("dbSendUpdate", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL) {
 	if(!is.null(list) || length(list(...))){
 		if (length(list(...))) statement <- .bindParameters(statement, list(...))
 		if (!is.null(list)) statement <- .bindParameters(statement, list)
@@ -281,11 +275,11 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 	}
 		
 	# convert tuple string vector into matrix so we can access a single column efficiently
-	parts <- do.call("rbind", colstrsplit(res@env$data[1:n],",\t",fixed=TRUE,useBytes=TRUE))
+	parts <- do.call("rbind", strsplit(res@env$data[1:n],",\t",fixed=TRUE,useBytes=TRUE))
 	
 	# strip away the [ and ] from the first and last column, respectively
-	parts[,1] <- colsubstring(parts[,1],3)
-	parts[,info$cols] <- colsubstring(parts[,info$cols],1,nchar(parts[,info$cols])-2)
+	parts[,1] <- substring(parts[,1],3)
+	parts[,info$cols] <- substring(parts[,info$cols],1,nchar(parts[,info$cols])-2)
 	
 	# translate "nothing" from SQL-ian to R-ese
 	parts[parts=="NULL"] <- NA
@@ -301,7 +295,7 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 			df[[j]] <- parts[,j]=="true"
 		if (col == .CT_CHR) { 
 			strings <- parts[,j]	
-			df[[j]] <- tuplesubstring(strings,2,nchar(strings)-1)
+			df[[j]] <- substring(strings,2,nchar(strings)-1)
 		}
 	}
 
@@ -323,8 +317,7 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 
 setMethod("dbClearResult", "MonetDBResult",	def = function(res, ...) {
 	.mapiWrite(res@env$conn@socket,paste0("Xclose ",res@env$info$id))
-	.mapiRead(res@env$conn@socket)
-	return(TRUE)
+	.mapiRead(res@env$conn@socket) == MSG_PROMPT
 },valueClass = "logical")
 
 setMethod("dbHasCompleted", "MonetDBResult", def = function(res, ...) {
@@ -418,7 +411,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 
 # determines the type of answer from the server in response to a query
 .mapiParseResponse <- function(response) {
-	lines <- rowstrsplit(response,"\n",fixed=TRUE)
+	lines <- strsplit(response,"\n",fixed=TRUE)
 	lines <- lines[[1]]
 
 	typeLine <- lines[1]
@@ -559,17 +552,15 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 			stop(paste("Authentication error:",authResponse))
 		}
 	} else {
-		cat ("II: Authentication successful\n")
-		
+		cat ("II: Authentication successful\n")		
 		.mapiWrite(con, paste0("Xreply_size ",REPLY_SIZE))
 		resp <- .mapiRead(con)
-		
 	}
 }
 
 # copied from RMonetDB, no java-specific things in here...
 
-monet.read.csv<-function(connection, files,tablename,nrows,header=TRUE,locked=FALSE,na.strings="",...,nrow.check=500){
+monet.read.csv <- function(connection,files,tablename,nrows,header=TRUE,locked=FALSE,na.strings="",...,nrow.check=500){
 	if (length(na.strings)>1) stop("na.strings must be of length 1")
 	headers<-lapply(files,read.csv,na.strings="NA",...,nrows=nrow.check)
 	

@@ -1,4 +1,4 @@
-source("../R/class.R")
+source("../R/monetdb.R")
 con <- dbConnect(dbDriver("MonetDB"), "monetdb://localhost:50000/acs", "monetdb", "monetdb",timeout=100)
 
 #teststr <- paste(rep("0123456789#",500),collapse="")
