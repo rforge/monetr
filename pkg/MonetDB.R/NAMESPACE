@@ -3,6 +3,8 @@ import(DBI)
 # export only driver constructor, everything else is DBI stuff..
 export(MonetDB,MonetR,MonetDBR,MonetDB.R)
 export(monet.read.csv)
+# this one is not in the DBI
+exportMethods(dbSendUpdate)
 
 # monet.frame things, this is an S3 class
 export(monet.frame)
@@ -13,6 +15,8 @@ S3method(str,monet.frame)
 S3method(print,monet.frame)
 S3method(names,monet.frame)
 S3method(dim,monet.frame)
+
+
 
 
 
