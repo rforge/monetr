@@ -1,0 +1,37 @@
+
+# Export all names
+exportPattern(".")
+
+# Import all packages listed as Imports or Depends
+import(
+  DBI,
+  bitops,
+  digest
+)
+
+import('utils')
+
+export('monet.frame')
+
+exportMethods(
+	monet.read.csv
+)
+
+
+# S3 methods
+S3method('Ops',monet.frame)
+S3method('[',monet.frame)
+S3method('[[',monet.frame)
+
+S3method('[<-',monet.frame)
+S3method('names',monet.frame)
+S3method('dimnames',monet.frame)
+S3method('names<-',monet.frame)
+S3method('dimnames<-',monet.frame)
+S3method('head',monet.frame)
+S3method('tail',monet.frame)
+S3method('str',monet.frame)
+S3method('print',monet.frame)
+S3method('ncol',monet.frame)
+S3method('nrow',monet.frame)
+S3method('dim',monet.frame)

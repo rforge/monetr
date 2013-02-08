@@ -1,0 +1,10 @@
+0.3
+- write support in dbSendQuery, new functions dbWriteTable and dbSendUpdate
+
+0.2
+- fixed handling of boolean values, now have proper R types
+- new parameter to dbConnect to specify connection timeout
+- check for empty responses in .mapiRead, now stop()s with a warning and some help
+
+0.1
+- initial version, basic read support
