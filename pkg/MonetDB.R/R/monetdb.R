@@ -173,6 +173,7 @@ setMethod("dbSendUpdate", signature(conn="MonetDBConnection", statement="charact
 	if (!res@env$success) {
 		stop(paste(statement,"failed! Server says:",res@env$message))
 	}
+	dbClearResult(res)
 	res@env$success
 })
 
@@ -383,6 +384,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 	con@lock$lock <- 0
 	return(resp)
 }
+
 
 .mapiRead <- function(con) {
 	resp <- list()
