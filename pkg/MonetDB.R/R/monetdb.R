@@ -15,7 +15,7 @@ MonetR <- MonetDB <- MonetDBR <- MonetDB.R <- function() {
 
 setMethod("dbGetInfo", "MonetDBDriver", def=function(dbObj, ...)
 			list(name="MonetDBDriver", 
-					driver.version="0.4",
+					driver.version="0.4.1",
 					DBI.version="0.2-5",
 					client.version=NA,
 					max.connections=NA)
