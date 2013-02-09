@@ -47,3 +47,5 @@ svymean( ~dname , dclus1 , byvar = ~comp_imp )
 # but then actual queries do work
 dbGetQuery( db , 'select * from apiclus1 limit 2' )
 dbRemoveTable(db,"apiclus1")
+
+print("SUCCESS")

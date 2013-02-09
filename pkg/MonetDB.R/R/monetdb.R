@@ -40,13 +40,16 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
 			
 	con <- socketConnection(host = host, port = port, blocking = TRUE, open="r+b",timeout=timeout)
 	.monetConnect(con,dbname,user,password)
+	
+	lockenv <- new.env(parent=emptyenv())
+	lockenv$lock <- 0
 					
-	new("MonetDBConnection",socket=con)},
+	new("MonetDBConnection",socket=con,lock=lockenv)},
 valueClass="MonetDBConnection")
 
 
 ### MonetDBConnection
-setClass("MonetDBConnection", representation("DBIConnection",socket="connection",fetchSize="integer"))
+setClass("MonetDBConnection", representation("DBIConnection",socket="connection",lock="environment",fetchSize="integer"))
 
 setMethod("dbDisconnect", "MonetDBConnection", def=function(conn, ...) {
 	close(conn@socket)
@@ -89,8 +92,7 @@ setMethod("dbGetQuery", signature(conn="MonetDBConnection", statement="character
 setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL) {
 	env <- NULL
 	if (DEBUG_QUERY)  cat(paste("QQ: '",statement,"'\n",sep=""))
-	.mapiWrite(conn@socket,paste0("s",statement,";"))
-	resp <- .mapiParseResponse(.mapiRead(conn@socket))
+	resp <- .mapiParseResponse(	.mapiRequest(conn,paste0("s",statement,";")))
 
 	env <- new.env(parent=emptyenv())
 		
@@ -263,9 +265,8 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 	}
 	
 	# now, if our tuple cache in res@env$data does not contain n rows, we have to fetch from server until it does
-	while (length(res@env$data) < n) {	
-		.mapiWrite(res@env$conn@socket,paste0("Xexport ",info$id," ", info$index, " ",n))
-		cresp <- .mapiParseResponse(.mapiRead(res@env$conn@socket))
+	while (length(res@env$data) < n) {
+		cresp <- .mapiParseResponse(.mapiRequest(res@env$conn,paste0("Xexport ",info$id," ", info$index, " ",n)))
 		if (cresp$type != Q_BLOCK) {
 			print("Error getting continuation block")
 			break;
@@ -311,7 +312,6 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 	# this is a trick so we do not have to call data.frame(), which is expensive
 	attr(df, "row.names") <- c(NA_integer_, length(df[[1]]))
 	class(df) <- "data.frame"
-
 	return(df)
 })
 
@@ -366,6 +366,24 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 # The block header contains two pieces of information: 1) the amount of bytes in the block, 
 # 2) a flag indicating whether the block is the final block of a message.
 
+# this is a combination of read and write to synchronize access to the socket. 
+# otherwise, we could have issues with on.exit()
+.mapiRequest <- function(con,msg) {
+	if (!identical(class(con)[[1]],"MonetDBConnection"))
+		stop("I can only be called with a MonetDBConnection as parameter, not a socket.")
+	
+	if (con@lock$lock > 0) {
+		cat("II: Attempted parallel access to socket. Denied.\n")
+		return("!Concurrent Access to Socket")
+	}
+	
+	con@lock$lock <- 1
+	.mapiWrite(con@socket,msg)
+	resp <- .mapiRead(con@socket)
+	con@lock$lock <- 0
+	return(resp)
+}
+
 .mapiRead <- function(con) {
 	resp <- list()
 	repeat {
@@ -391,7 +409,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 	final <- FALSE
 	pos <- 0
 	
-	if (DEBUG_IO)  cat(paste("TX: '",msg,"'\n",sep=""))
+	if (DEBUG_IO)  cat(paste("TX: '",msg,"'\n",sep=""))	
 	
 	while (!final) {		
 		req <- substring(msg,pos+1,min(MAX_PACKET_SIZE, nchar(msg))+pos)
@@ -409,12 +427,12 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 	NULL
 }
 
-# determines the type of answer from the server in response to a query
+# determines and partially parses the answer from the server in response to a query
 .mapiParseResponse <- function(response) {
-	lines <- strsplit(response,"\n",fixed=TRUE)
+	lines <- strsplit(response,"\n",fixed=TRUE,useBytes=TRUE)
 	lines <- lines[[1]]
-
-	typeLine <- lines[1]
+	
+	typeLine <- lines[[1]]
 	resKey <- substring(typeLine,1,1)
 	
 	if (resKey == MSG_MESSAGE) {
@@ -423,23 +441,22 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 	if (resKey == MSG_QUERY) {
 		typeKey <- as.integer(substring(typeLine,2,2))
 		env <- new.env(parent=emptyenv())
+		
 		# Query results
 		if (typeKey == Q_TABLE) {
-			# result set metadata here
 			header <- .mapiParseHeader(lines[1])
-			if (DEBUG_QUERY) cat(paste("QQ: Query result for query ",header$id," with ",header$rows," rows and ",header$cols," cols, index ",header$index,"\n",sep=""))
+			if (DEBUG_QUERY) cat(paste("QQ: Query result for query ",header$id," with ",header$rows," rows and ",header$cols," cols, ",header$index," rows\n",sep=""))
 		
-			env$type=Q_TABLE
-			env$id=header$id
-			env$rows=header$rows
-			env$cols=header$cols
-			env$index=header$index
-			env$tables=.mapiParseTableHeader(lines[2])
-			env$names=.mapiParseTableHeader(lines[3])
-			env$types=toupper(.mapiParseTableHeader(lines[4]))
-			env$lengths=.mapiParseTableHeader(lines[5])
-			
-			env$tuples=lines[6:length(lines)]
+			env$type	<- Q_TABLE
+			env$id		<- header$id
+			env$rows	<- header$rows
+			env$cols	<- header$cols
+			env$index	<- header$index
+			env$tables	<- .mapiParseTableHeader(lines[2])
+			env$names	<- .mapiParseTableHeader(lines[3])
+			env$types	<- toupper(.mapiParseTableHeader(lines[4]))
+			env$lengths	<- .mapiParseTableHeader(lines[5])
+			env$tuples	<- lines[6:length(lines)]
 			
 			return(env)
 		}
@@ -448,20 +465,23 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 			header <- .mapiParseHeader(lines[1],TRUE)
 			if (DEBUG_QUERY) cat(paste("QQ: Continuation for query ",header$id," with ",header$rows," rows and ",header$cols," cols, index ",header$index,"\n",sep=""))
 			
-			env$type=Q_BLOCK
-			env$id=header$id
-			env$rows=header$rows
-			env$cols=header$cols
-			env$index=header$index
-			env$tuples=lines[2:length(lines)]
-			
+			env$type	<- Q_BLOCK
+			env$id		<- header$id
+			env$rows	<- header$rows
+			env$cols	<- header$cols
+			env$index	<- header$index
+			env$tuples	<- lines[2:length(lines)]
+						
 			return(env)
 		}
 		
+		# Result of db-altering query
 		if (typeKey == Q_UPDATE || typeKey == Q_CREATE) {
 			header <- .mapiParseHeader(lines[1],TRUE)
-			env$type=Q_UPDATE
-			env$id=header$id
+			
+			env$type	<- Q_UPDATE
+			env$id		<- header$id
+			
 			return(env)			
 		}
 	
@@ -473,7 +493,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 }
 
 .mapiParseHeader <- function(line, stupidInverseColsRows=FALSE) {
-	tableinfo <- strsplit(line," ",fixed=TRUE)
+	tableinfo <- strsplit(line," ",fixed=TRUE,useBytes=TRUE)
 	tableinfo <- tableinfo[[1]]
 	
 	id    <- as.numeric(tableinfo[2])
@@ -491,8 +511,8 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 }
 
 .mapiParseTableHeader <- function(line) {
-	first <- strsplit(substr(line,3,nchar(line))," #",fixed=TRUE)
-	second <- strsplit(first[[1]][1],",\t",fixed=TRUE)
+	first <- strsplit(substr(line,3,nchar(line))," #",fixed=TRUE,useBytes=TRUE)
+	second <- strsplit(first[[1]][1],",\t",fixed=TRUE,useBytes=TRUE)
 	second[[1]]
 }
 
