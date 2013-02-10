@@ -325,8 +325,17 @@ setMethod("dbHasCompleted", "MonetDBResult", def = function(res, ...) {
 	return(res@env$delivered == res@env$info$rows)
 },valueClass = "logical")
 
+
+monetTypes<-rep(c("numeric","character","character","logical","character"), c(8, 3,4,1,1))
+names(monetTypes)<-c(c("TINYINT","SMALLINT","INT","BIGINT","REAL","DOUBLE","DECIMAL","WRD"),
+                     c("CHAR","VARCHAR","CLOB"),
+                     c("INTERVAL","DATE","TIME","TIMESTAMP"),
+                     "BOOLEAN",
+                     "BLOB")
+
+
 setMethod("dbColumnInfo", "MonetDBResult", def = function(res, ...) {
-	return(data.frame(field.name=res@env$info$names,field.type=res@env$info$types))	
+	return(data.frame(field.name=res@env$info$names,field.type=res@env$info$types, data.type=monetTypes[res@env$info$types]))	
 },
 valueClass = "data.frame")
 

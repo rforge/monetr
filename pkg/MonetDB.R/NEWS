@@ -1,3 +1,6 @@
+0.4
+- make dbColumnInfo return the R-side data type as well as the Monet-side one.
+
 0.3
 - write support in dbSendQuery, new functions dbWriteTable and dbSendUpdate
 
