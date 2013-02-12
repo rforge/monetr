@@ -376,7 +376,8 @@ Q_BLOCK       <- 6
 DEBUG_IO      <- FALSE
 DEBUG_QUERY   <- FALSE
 
-REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
+REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a small result set. 
+# The entire set might never be fetch()'ed after all!
 
 # .mapiRead and .mapiWrite implement MonetDB's MAPI protocol. It works as follows: 
 # Ontop of the socket stream, blocks are being sent. Each block has a two-byte header. 
@@ -390,14 +391,20 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 	if (!identical(class(con)[[1]],"MonetDBConnection"))
 		stop("I can only be called with a MonetDBConnection as parameter, not a socket.")
 	
+	# TODO: why does this sometimes happen?? on.exit() not waiting?
 	if (con@lock$lock > 0) {
 		cat("II: Attempted parallel access to socket. Denied.\n")
 		return("!Concurrent Access to Socket")
 	}
 	
+	# prevent other calls to .mapiRequest while we are doing something on this connection.
 	con@lock$lock <- 1
+	
+	# send payload and read response		
 	.mapiWrite(con@socket,msg)
 	resp <- .mapiRead(con@socket)
+	
+	# release lock
 	con@lock$lock <- 0
 	return(resp)
 }
@@ -408,10 +415,8 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited
 	repeat {
 		unpacked <- readBin(con,"integer",n=1,size=2,signed=FALSE,endian="little")
 			
-		if (length(unpacked) == 0) {
-			# empty response from socket, probably timeout
+		if (length(unpacked) == 0) 
 			stop("Empty response from MonetDB server, probably a timeout. You can increase the time to wait for responses with the 'timeout' parameter to 'dbConnect()'.")
-		}
 		
 		length = bitShiftR(unpacked,1)
 		final = bitAnd(unpacked,1)
