@@ -92,7 +92,7 @@ setMethod("dbGetQuery", signature(conn="MonetDBConnection", statement="character
 setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL) {
 	env <- NULL
 	if (DEBUG_QUERY)  cat(paste("QQ: '",statement,"'\n",sep=""))
-	resp <- .mapiParseResponse(	.mapiRequest(conn,paste0("s",statement,";")))
+	resp <- .mapiParseResponse(.mapiRequest(conn,paste0("s",statement,";")))
 
 	env <- new.env(parent=emptyenv())
 		
@@ -175,8 +175,8 @@ setMethod("dbSendUpdate", signature(conn="MonetDBConnection", statement="charact
 	if (!res@env$success) {
 		stop(paste(statement,"failed! Server says:",res@env$message))
 	}
-	dbClearResult(res)
-	res@env$success
+	#dbClearResult(res) # should not be needed, since updates do not generate a result set.
+	TRUE
 })
 
 .bindParameters <- function(statement,param) {
@@ -388,6 +388,8 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 # this is a combination of read and write to synchronize access to the socket. 
 # otherwise, we could have issues with on.exit()
 .mapiRequest <- function(con,msg) {
+	cat(paste0("RQ-S: '",substring(msg,1,100),"\n"))
+	
 	if (!identical(class(con)[[1]],"MonetDBConnection"))
 		stop("I can only be called with a MonetDBConnection as parameter, not a socket.")
 	
@@ -406,7 +408,11 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 	
 	# release lock
 	con@lock$lock <- 0
+	cat(paste0("RQ-E: '",substring(msg,1,100),"\n"))
+	
 	return(resp)
+	
+	# TODO: add on.exit() handler here that cleans up the socket if possible?
 }
 
 
