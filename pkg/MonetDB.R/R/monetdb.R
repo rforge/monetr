@@ -375,6 +375,8 @@ Q_BLOCK       <- 6
 
 DEBUG_IO      <- FALSE
 DEBUG_QUERY   <- FALSE
+DEBUG_REQUEST   <- FALSE
+
 
 REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a small result set. 
 # The entire set might never be fetch()'ed after all!
@@ -388,7 +390,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 # this is a combination of read and write to synchronize access to the socket. 
 # otherwise, we could have issues with on.exit()
 .mapiRequest <- function(con,msg) {
-	cat(paste0("RQ-S: '",substring(msg,1,100),"\n"))
+	if (DEBUG_REQUEST) cat(paste0("RQ-S: '",substring(msg,1,100),"\n"))
 	
 	if (!identical(class(con)[[1]],"MonetDBConnection"))
 		stop("I can only be called with a MonetDBConnection as parameter, not a socket.")
@@ -408,7 +410,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 	
 	# release lock
 	con@lock$lock <- 0
-	cat(paste0("RQ-E: '",substring(msg,1,100),"\n"))
+	if (DEBUG_REQUEST) cat(paste0("RQ-E: '",substring(msg,1,100),"\n"))
 	
 	return(resp)
 	
