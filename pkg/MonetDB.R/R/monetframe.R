@@ -24,7 +24,7 @@ monet.frame <- function(conn,thingy,...) {
 .element.limit <- 10000000
 
 as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) {
-	# TODO: check if amount of tuples/fields is larger than some limit
+	# check if amount of tuples/fields is larger than some limit
 	# raise error if over limit and warnSize==TRUE
 	if (ncol(x)*nrow(x) > .element.limit && warnSize) 
 		stop(paste0("The total number of elements to be loaded is larger than ",.element.limit,". This is probably very slow. Consider dropping columns and/or rows, e.g. using the [] function. If you really want to do this, call as.data.frame() with the warnSize parameter set to FALSE."))

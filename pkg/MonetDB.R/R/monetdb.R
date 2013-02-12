@@ -156,6 +156,8 @@ setMethod("dbDataType", signature(dbObj="MonetDBConnection", obj = "ANY"), def =
 	if (is.logical(obj)) "BOOLEAN"
 	else if (is.integer(obj)) "INTEGER"
 	else if (is.numeric(obj)) "DOUBLE PRECISION"
+	else if (is.raw(obj)) "BLOB"
+	
 	else "VARCHAR(255)"
 }, valueClass = "character")
 
@@ -185,6 +187,8 @@ setMethod("dbSendUpdate", signature(conn="MonetDBConnection", statement="charact
 			statement <- sub("?","NULL",statement,fixed=TRUE)
 		else if (valueClass %in% c("numeric","logical","integer"))
 			statement <- sub("?",value,statement,fixed=TRUE)
+		else if (valueClass == c("raw"))
+			stop("raw() data is so far only supported when reading from BLOBs")
 		else # TODO: escaping
 			statement <- sub("?",paste("'",.mapiQuote(toString(value)),"'",sep=""),statement,fixed=TRUE)
 	}
@@ -214,6 +218,8 @@ setClass("MonetDBResult", representation("DBIResult",env="environment"))
 .CT_CHR <- 2L
 .CT_CHRR <- 3L
 .CT_BOOL <- 4L
+.CT_RAW <- 5L
+
 
 # most of the heavy lifting here
 setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res, n, ...) {
@@ -253,9 +259,8 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 			ct[i] <- .CT_BOOL			
 		}
 		if (info$types[i] == c("BLOB")) {
-			df[[i]] <- character()
-			ct[i] <- .CT_CHR
-			warning(paste("BLOB column type only supported if column",info$names[i],"contains strings"))			
+			df[[i]] <- raw()
+			ct[i] <- .CT_RAW
 		}
 		names(df)[i] <- info$names[i]
 	}
@@ -299,6 +304,9 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 			strings <- parts[,j]	
 			df[[j]] <- substring(strings,2,nchar(strings)-1)
 		}
+		if (col == .CT_RAW) {
+			df[[j]] <- lapply(parts[,j],charToRaw)
+		}
 	}
 
 	# remove the already delivered tuples from the background holder or clear it altogether
@@ -326,7 +334,7 @@ setMethod("dbHasCompleted", "MonetDBResult", def = function(res, ...) {
 },valueClass = "logical")
 
 
-monetTypes<-rep(c("numeric","character","character","logical","character"), c(8, 3,4,1,1))
+monetTypes<-rep(c("numeric","character","character","logical","raw"), c(8, 3,4,1,1))
 names(monetTypes)<-c(c("TINYINT","SMALLINT","INT","BIGINT","REAL","DOUBLE","DECIMAL","WRD"),
                      c("CHAR","VARCHAR","CLOB"),
                      c("INTERVAL","DATE","TIME","TIMESTAMP"),

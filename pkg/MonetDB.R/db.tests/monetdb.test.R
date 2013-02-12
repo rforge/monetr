@@ -5,8 +5,28 @@ stopifnot(identical(dbGetInfo(drv)$name,"MonetDBDriver"))
 con <- dbConnect(drv, "monetdb://localhost:50000/acs", "monetdb", "monetdb",timeout=100)
 stopifnot(identical(class(con)[[1]],"MonetDBConnection"))
 
+
 # basic MAPI/SQL test
 stopifnot(identical(dbGetQuery(con,"SELECT 'DPFKG!'")[[1]],"DPFKG!"))
+
+# remove test table
+if (dbExistsTable(con,"monetdbtest")) dbRemoveTable(con,"monetdbtest")
+stopifnot(identical(dbExistsTable(con,"monetdbtest"),FALSE))
+
+
+# test raw handling
+dbSendUpdate(con,"CREATE TABLE monetdbtest (a varchar(10),b integer,c blob)")
+stopifnot(identical(dbExistsTable(con,"monetdbtest"),TRUE))
+dbSendUpdate(con,"INSERT INTO monetdbtest VALUES ('one',1,'1111')")
+dbSendUpdate(con,"INSERT INTO monetdbtest VALUES ('two',2,'22222222')")
+stopifnot(identical(dbGetQuery(con,"SELECT count(*) FROM monetdbtest")[[1]],2))
+dbReadTable(con,"monetdbtest")[[3]]
+stopifnot(identical(dbReadTable(con,"monetdbtest")[[3]],list(charToRaw("1111"),charToRaw("22222222"))))
+
+
+dbRemoveTable(con,"monetdbtest")
+stopifnot(identical(dbExistsTable(con,"monetdbtest"),FALSE))
+
 
 # write test table iris
 data(iris)
@@ -58,6 +78,8 @@ stopifnot(identical(dim(iris),dim(iris3)))
 stopifnot(identical(dbListFields(con,"monetdbtest"),c("sepal_length","sepal_width","petal_length","petal_width","species")))
 dbRemoveTable(con,"monetdbtest")
 stopifnot(identical(dbExistsTable(con,"monetdbtest"),FALSE))
+
+
 
 stopifnot(identical(dbDisconnect(con),TRUE))
 print("SUCCESS")
