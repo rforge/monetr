@@ -388,30 +388,40 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 
 # this is a combination of read and write to synchronize access to the socket. 
 # otherwise, we could have issues with finalizers
-.mapiRequest <- function(con,msg) {
+.mapiRequest <- function(conObj,msg) {
 	# call finalizers on disused objects. At least avoids concurrent access to socket.
 	gc()
+	# add exit handler that will clean up the socket and release the lock.
+	# just in case someone (Anthony!) uses ESC or CTRL-C while running some long running query.
+	on.exit(.mapiCleanup(conObj),add=TRUE)
 		
-	if (!identical(class(con)[[1]],"MonetDBConnection"))
+	if (!identical(class(conObj)[[1]],"MonetDBConnection"))
 		stop("I can only be called with a MonetDBConnection as parameter, not a socket.")
 	
 	# TODO: why does this sometimes happen?? on.exit() not waiting?
-	if (con@lock$lock > 0) {
+	if (conObj@lock$lock > 0) {
 		cat("II: Attempted parallel access to socket. Denied.\n")
 		return("!Concurrent Access to Socket")
 	}
 	
 	# prevent other calls to .mapiRequest while we are doing something on this connection.
-	con@lock$lock <- 1
+	conObj@lock$lock <- 1
 	
 	# send payload and read response		
-	.mapiWrite(con@socket,msg)
-	resp <- .mapiRead(con@socket)
+	.mapiWrite(conObj@socket,msg)
+	resp <- .mapiRead(conObj@socket)
 	
 	# release lock
-	con@lock$lock <- 0
+	conObj@lock$lock <- 0
 	
 	return(resp)
+}
+
+.mapiCleanup <- function(conObj) {
+	if (conObj@lock$lock > 0) {
+		.mapiRead(conObj@socket)
+		conObj@lock$lock <- 0
+	}
 }
 
 
@@ -610,7 +620,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 # copied from RMonetDB, no java-specific things in here...
 # TODO: read first few rows with read.table and check types etc.
 
-monet.read.csv <- function(connection,files,tablename,nrows,header=TRUE,locked=FALSE,na.strings="",...,nrow.check=500){
+monet.read.csv <- monetdb.read.csv <- function(connection,files,tablename,nrows,header=TRUE,locked=FALSE,na.strings="",...,nrow.check=500){
 	if (length(na.strings)>1) stop("na.strings must be of length 1")
 	headers<-lapply(files,read.csv,na.strings="NA",...,nrows=nrow.check)
 	
