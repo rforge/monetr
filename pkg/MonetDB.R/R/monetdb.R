@@ -375,7 +375,6 @@ Q_BLOCK       <- 6
 
 DEBUG_IO      <- FALSE
 DEBUG_QUERY   <- FALSE
-DEBUG_REQUEST   <- FALSE
 
 
 REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a small result set. 
@@ -388,10 +387,11 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 # 2) a flag indicating whether the block is the final block of a message.
 
 # this is a combination of read and write to synchronize access to the socket. 
-# otherwise, we could have issues with on.exit()
+# otherwise, we could have issues with finalizers
 .mapiRequest <- function(con,msg) {
-	if (DEBUG_REQUEST) cat(paste0("RQ-S: '",substring(msg,1,100),"\n"))
-	
+	# call finalizers on disused objects. At least avoids concurrent access to socket.
+	gc()
+		
 	if (!identical(class(con)[[1]],"MonetDBConnection"))
 		stop("I can only be called with a MonetDBConnection as parameter, not a socket.")
 	
@@ -410,11 +410,8 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 	
 	# release lock
 	con@lock$lock <- 0
-	if (DEBUG_REQUEST) cat(paste0("RQ-E: '",substring(msg,1,100),"\n"))
 	
 	return(resp)
-	
-	# TODO: add on.exit() handler here that cleans up the socket if possible?
 }
 
 
@@ -611,6 +608,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 }
 
 # copied from RMonetDB, no java-specific things in here...
+# TODO: read first few rows with read.table and check types etc.
 
 monet.read.csv <- function(connection,files,tablename,nrows,header=TRUE,locked=FALSE,na.strings="",...,nrow.check=500){
 	if (length(na.strings)>1) stop("na.strings must be of length 1")
