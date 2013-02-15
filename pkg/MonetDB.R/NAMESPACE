@@ -4,7 +4,7 @@ import(DBI)
 export(MonetDB,MonetR,MonetDBR,MonetDB.R)
 export(monet.read.csv,monetdb.read.csv)
 # this one is not in the DBI
-exportMethods(dbSendUpdate)
+exportMethods(dbSendUpdate,dbSendUpdateAsync)
 
 # monet.frame things, this is an S3 class
 export(monet.frame)
