@@ -43,6 +43,7 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
 	
 	lockenv <- new.env(parent=emptyenv())
 	lockenv$lock <- 0
+	lockenv$deferred <- list()
 					
 	new("MonetDBConnection",socket=con,lock=lockenv)},
 valueClass="MonetDBConnection")
@@ -89,10 +90,10 @@ setMethod("dbGetQuery", signature(conn="MonetDBConnection", statement="character
 })
 
 # This one does all the work in this class
-setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL) {
+setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL,async=FALSE) {
 	env <- NULL
 	if (DEBUG_QUERY)  cat(paste("QQ: '",statement,"'\n",sep=""))
-	resp <- .mapiParseResponse(.mapiRequest(conn,paste0("s",statement,";")))
+	resp <- .mapiParseResponse(.mapiRequest(conn,paste0("s",statement,";"),async=async))
 
 	env <- new.env(parent=emptyenv())
 		
@@ -106,7 +107,7 @@ setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="characte
 		env$delivered <- 0
 		env$query <- statement
 	}
-	if (resp$type == Q_UPDATE || resp$type == Q_CREATE) {
+	if (resp$type == Q_UPDATE || resp$type == Q_CREATE || resp$type == MSG_ASYNC_REPLY) {
 		env$success = TRUE
 		env$conn <- conn
 		env$query <- statement
@@ -165,18 +166,23 @@ setMethod("dbDataType", signature(dbObj="MonetDBConnection", obj = "ANY"), def =
 setMethod("dbRemoveTable", "MonetDBConnection", def=function(conn, name, ...) dbSendUpdate(conn, paste("DROP TABLE", name)))
 
 # for compatibility with RMonetDB (and dbWriteTable support), we will allow parameters to this method, but will not use prepared statements internally
-if (is.null(getGeneric("dbSendUpdate"))) setGeneric("dbSendUpdate", function(conn, statement, ...) standardGeneric("dbSendUpdate"))
-setMethod("dbSendUpdate", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL) {
+if (is.null(getGeneric("dbSendUpdate"))) setGeneric("dbSendUpdate", function(conn, statement,...,async=FALSE) standardGeneric("dbSendUpdate"))
+setMethod("dbSendUpdate", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL,async=FALSE) {
 	if(!is.null(list) || length(list(...))){
 		if (length(list(...))) statement <- .bindParameters(statement, list(...))
 		if (!is.null(list)) statement <- .bindParameters(statement, list)
 	}
-	res <- dbSendQuery(conn,statement)
+	res <- dbSendQuery(conn,statement,async=async)
 	if (!res@env$success) {
 		stop(paste(statement,"failed! Server says:",res@env$message))
 	}
-	#dbClearResult(res) # should not be needed, since updates do not generate a result set.
 	TRUE
+})
+
+# this can be used in finalizers to not mess up the socket
+if (is.null(getGeneric("dbSendUpdateAsync"))) setGeneric("dbSendUpdateAsync", function(conn, statement, ...) standardGeneric("dbSendUpdateAsync"))
+setMethod("dbSendUpdateAsync", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL) {
+	dbSendUpdate(conn,statement,async=async)
 })
 
 .bindParameters <- function(statement,param) {
@@ -365,6 +371,8 @@ MSG_MESSAGE  <- "!"
 MSG_PROMPT   <- ""
 MSG_QUERY    <- "&"
 MSG_SCHEMA_HEADER <- "%"
+MSG_ASYNC_REPLY <- "_"
+
 
 Q_TABLE       <- 1 
 Q_UPDATE      <- 2 
@@ -388,21 +396,28 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 
 # this is a combination of read and write to synchronize access to the socket. 
 # otherwise, we could have issues with finalizers
-.mapiRequest <- function(conObj,msg) {
+.mapiRequest <- function(conObj,msg,async=FALSE) {
 	# call finalizers on disused objects. At least avoids concurrent access to socket.
-	gc()
-	# add exit handler that will clean up the socket and release the lock.
-	# just in case someone (Anthony!) uses ESC or CTRL-C while running some long running query.
-	on.exit(.mapiCleanup(conObj),add=TRUE)
+	#gc()
 		
 	if (!identical(class(conObj)[[1]],"MonetDBConnection"))
 		stop("I can only be called with a MonetDBConnection as parameter, not a socket.")
 	
-	# TODO: why does this sometimes happen?? on.exit() not waiting?
+	# ugly effect of finalizers, sometimes, single-threaded R can get concurrent calls to this method.
 	if (conObj@lock$lock > 0) {
-		cat("II: Attempted parallel access to socket. Denied.\n")
-		return("!Concurrent Access to Socket")
+		if (async) {
+			cat(paste0("II: Attempted parallel access to socket. Deferred query '",msg,"'\n"))
+			conObj@lock$deferred <- c(conObj@lock$deferred,msg)
+			return("_")
+		} else {
+			cat("II: Attempted parallel access to socket. Use only dbSendUpdateAsync() from finalizers.\n")
+			return("!Concurrent Access to Socket")
+		}
 	}
+	
+	# add exit handler that will clean up the socket and release the lock.
+	# just in case someone (Anthony!) uses ESC or CTRL-C while running some long running query.
+	on.exit(.mapiCleanup(conObj),add=TRUE)
 	
 	# prevent other calls to .mapiRequest while we are doing something on this connection.
 	conObj@lock$lock <- 1
@@ -411,16 +426,31 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 	.mapiWrite(conObj@socket,msg)
 	resp <- .mapiRead(conObj@socket)
 	
+	# get deferred statements from deferred list and execute
+	while (length(conObj@lock$deferred) > 0) {
+		# take element, execute, check response for prompt
+		dmesg <- conObj@lock$deferred[[1]]
+		conObj@lock$deferred[[1]] <- NULL
+		.mapiWrite(conObj@socket,dmesg)
+		dresp <- .mapiParseResponse(.mapiRead(conObj@socket))
+		if (dresp$type == MSG_MESSAGE) {
+			conObj@lock$lock <- 0
+			warning(paste("II: Failed to execute deferred statement '",dmesg,"'. Server said: '",dresp$message,"'\n"))
+		}
+	}
+	
 	# release lock
 	conObj@lock$lock <- 0
-	
 	return(resp)
 }
 
 .mapiCleanup <- function(conObj) {
 	if (conObj@lock$lock > 0) {
-		.mapiRead(conObj@socket)
+		# try/catch the interrupt here, kill connection, reconnect, present warning message
+		cat("II: Cancelled query execution. We will reconnect in this R session. Beware that a long-running query in the MonetDB server in not affected by that, so please consider restarting the server.\n")
+		# TODO: actually close connection & reopen
 		conObj@lock$lock <- 0
+		
 	}
 }
 
@@ -440,7 +470,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 		resp <- c(resp,readChar(con, length, useBytes = TRUE))		
 		if (final == 1) break
 	}
-	if (DEBUG_IO) cat(paste("RX: '",paste0(resp),"'\n",sep=""))
+	if (DEBUG_IO) cat(paste("RX: '",substring(paste0(resp,collapse=""),1,200),"'\n",sep=""))
 	return(paste0("",resp,collapse=""))
 }
 
@@ -474,6 +504,9 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 	typeLine <- lines[[1]]
 	resKey <- substring(typeLine,1,1)
 	
+	if (resKey == MSG_ASYNC_REPLY) {
+		return(list(type=MSG_ASYNC_REPLY))
+	}
 	if (resKey == MSG_MESSAGE) {
 		return(list(type=MSG_MESSAGE,message=typeLine))
 	}
