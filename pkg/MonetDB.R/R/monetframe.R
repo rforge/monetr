@@ -1,6 +1,9 @@
 # this wraps a sql database (in particular MonetDB) with a DBI connector 
 # to have it appear like a data.frame
 
+DEBUG_REWRITE   <- FALSE
+
+
 # can either be given a query or simply a table name
 monet.frame <- function(conn,thingy,...) {
 	if(missing(conn)) stop("'conn' must be specified")
@@ -39,8 +42,11 @@ as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) 
 
 # this is the fun part. this method has infinity ways of being invoked :(
 # http://stat.ethz.ch/R-manual/R-patched/library/base/html/Extract.data.frame.html
+
+# TODO: handle negative indices and which() calls. which() like subset!
+
 "[.monet.frame" <- function(x, k, j,drop=TRUE) {	
-	query <- attr(x,"resultSet")@env$query
+	nquery <- query <- attr(x,"resultSet")@env$query
 	
 	cols <- NA
 	rows <- NA
@@ -59,13 +65,13 @@ as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) 
 		# if we have a numeric column spec, find the appropriate names
 		if (is.numeric(cols)) {
 			if (min(cols) < 1 || max(cols) > ncol(x)) 
-				stop("Invalid column specification. Column indices have to be in range [1,",ncol(x),"].",sep="")			
+				stop(paste0("Invalid column specification '",cols,"'. Column indices have to be in range [1,",ncol(x),"].",sep=""))			
 			cols <- names(x)[cols]
 		}
 		if (!all(cols %in% names(x)))
-			stop("Invalid column specification. Column names have to be in set {",paste(names(x),collapse=", "),"}.",sep="")			
+			stop(paste0("Invalid column specification '",cols,"'. Column names have to be in set {",paste(names(x),collapse=", "),"}.",sep=""))			
 		
-		query <- sub("SELECT.+FROM",paste0("SELECT ",paste0(make.db.names(attr(x,"conn"),cols),collapse=", ")," FROM "),query)
+		nquery <- sub("SELECT.+FROM",paste0("SELECT ",paste0(make.db.names(attr(x,"conn"),cols),collapse=", ")," FROM "),query)
 	}
 	
 	if (length(rows) > 1 || !is.na(rows)) { # get around an error if cols is a vector...
@@ -79,8 +85,8 @@ as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) 
 			oldLimit <- 0
 			oldOffset <- 0
 			
-			oldOffsetStr <- gsub("(.*offset[ ]+)(\\d+)(.*)","\\2",query,ignore.case=TRUE)
-			if (oldOffsetStr != query) {
+			oldOffsetStr <- gsub("(.*offset[ ]+)(\\d+)(.*)","\\2",nquery,ignore.case=TRUE)
+			if (oldOffsetStr != nquery) {
 				oldOffset <- as.numeric(oldOffsetStr)
 			}
 			
@@ -89,8 +95,8 @@ as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) 
 
 			# remove old limit/offset from query
 			# TODO: is this safe? UNION queries are particularly dangerous, again...
-			query <- gsub("limit[ ]+\\d+|offset[ ]+\\d+","",query,ignore.case=TRUE)
-			query <- sub(";? *$",paste0(" LIMIT ",limit," OFFSET ",offset),query)
+			nquery <- gsub("limit[ ]+\\d+|offset[ ]+\\d+","",nquery,ignore.case=TRUE)
+			nquery <- sub(";? *$",paste0(" LIMIT ",limit," OFFSET ",offset),nquery,ignore.case=TRUE)
 		}
 		else 
 			warning(paste("row specification has to be sequential, but ",paste(rows,collapse=",")," is not. Try as.data.frame(x)[c(",paste(rows,collapse=","),"),] instead.",sep=""))
@@ -98,14 +104,17 @@ as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) 
 	
 	# this would be the only case for column selection where the 'drop' parameter has an effect.
 	# we have to create a warning, since drop=TRUE is default behaviour and might be expected by users
-	if ((length(cols) == 1 || length(rows) == 1) && drop) 
+	if (((!is.na(cols) && length(cols) == 1) || (!is.na(rows) && length(rows) == 1)) && drop) 
 		warning("drop=TRUE for one-column or one-row results is not supported. Overriding to FALSE")
 	
 	# clear previous result set to free db resources waiting for fetch()
 	dbClearResult(attr(x,"resultSet"))
 	
 	# construct and return new monet.frame for rewritten query
-	monet.frame(attr(x,"conn"),query)
+
+	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
+
+	monet.frame(attr(x,"conn"),nquery)
 }
 
 .is.sequential <- function(x, eps=1e-8) {
@@ -145,21 +154,198 @@ dim.monet.frame <- function(x) {
 	c(attr(x,"resultSet")@env$info$rows,attr(x,"resultSet")@env$info$cols)
 }
 
-# TODO: how the hell...
-subset.monet.frame <- function (x, subset, select, drop = FALSE, ...) {
-	print("subset.monet.frame - Not implemented yet.")
-	FALSE
-}
 
-# TODO: WHAT IS THIS?
-Ops.monet.frame = function(e1,e2) {
-	print("Ops.monet.frame - Not implemented yet.")
-	FALSE
-}
-
-#TODO subset.monet.frame
-# ?subset
 # http://stat.ethz.ch/R-manual/R-patched/library/base/html/subset.html
+subset.monet.frame<-function(x,subset,...){
+	query <- attr(x,"resultSet")@env$query
+	subset<-substitute(subset)
+	restr <- sqlexpr(subset)
+
+	if (length(grep(" where ",query,ignore.case=TRUE)) > 0) {
+		nquery <- sub("where (.*?) (group|having|order|limit|;)",paste0("where \\1 AND ",restr," \\2"),query,ignore.case=TRUE)
+	}
+	else {
+		nquery <- sub("(group|having|order|limit|;|$)",paste0(" where ",restr," \\1"),query,ignore.case=TRUE)
+	}
+	# clear previous result set to free db resources waiting for fetch()
+	dbClearResult(attr(x,"resultSet"))
+	
+	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
+	
+	# construct and return new monet.frame for rewritten query
+	monet.frame(attr(x,"conn"),nquery)	
+}
+
+#   ‘"+"’, ‘"-"’, ‘"*"’, ‘"/"’, ‘"^"’, ‘"%%"’, ‘"%/%"’
+#   ‘"&"’, ‘"|"’, ‘"!"’
+#   ‘"=="’, ‘"!="’, ‘"<"’, ‘"<="’, ‘">="’, ‘">"’
+Ops.monet.frame <- function(e1,e2) {
+	unary <- nargs() == 1L
+	lclass <- nzchar(.Method[1L])
+	rclass <- !unary && (nzchar(.Method[2L]))
+	
+	# this will be the next SELECT x thing
+	nexpr <- ""
+	
+	left <- right <- query <- queryresult <- conn <- NA
+	
+	# both values are monet.frame
+	if (lclass && rclass) {
+		if (any(dim(e1) != dim(e2))) 
+			stop(.Generic, " only defined for equally-sized frames")
+		e1c <- names(e1)[[1]]
+		e2c <- names(e2)[[1]]
+		
+		# TODO: check whether both frames are from same table? how to do this otherwise? join?
+		# something like that, grep the FROM part and compare?
+	}
+
+	# TODO: really close result set here? If this fails, fetch() will fail...
+	# TODO: check data types of db columns, have to be something numerical
+	
+	# left operand is monet.frame
+	else if (lclass) {
+		if (length(names(e1)) != 1) 
+			stop(.Generic, " only defined for one-column frames, consider using $ first")
+		if (!is.numeric(e2))
+			stop(e2," is not a numeric operand.")
+		query <- attr(e1,"resultSet")@env$query
+		conn <- attr(e1,"conn")
+		dbClearResult(attr(e1,"resultSet"))
+		left <- make.db.names(attr(e1,"resultSet")@env$conn,names(e1)[[1]])
+		right <- e2
+	}
+	# right operand is monet.frame
+	else {
+		if (length(names(e2)) != 1) 
+			stop(.Generic, " only defined for one-column frames, consider using $ first")
+		if (!is.numeric(e1))
+			stop(e1," is not a numeric operand.")
+		query <- attr(e2,"resultSet")@env$query
+		conn <- attr(e2,"conn")
+		dbClearResult(attr(e2,"resultSet"))
+		left <- e1
+		right <- make.db.names(attr(e2,"resultSet")@env$conn,names(e2)[[1]])
+	}
+			
+	if (.Generic %in% c("+", "-", "*", "/")) {
+		nexpr <- paste0(left,.Generic,right)
+	}
+	if (.Generic == "^") {
+		nexpr <- paste0("POWER(",left,",",right,")")
+	}
+	if (.Generic == "%%") {
+		nexpr <- paste0(left,"%",right)
+	}
+	if (nexpr == "") 
+		stop(.Generic, " not supported (yet). Sorry.")
+	
+	# replace the thing between SELECT and WHERE with the new value and return new monet.frame
+	nquery <- sub("select (.*?) from",paste0("select ",nexpr," from"),query,ignore.case=TRUE)
+	
+	# clear previous result set to free db resources waiting for fetch()
+	
+	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
+	
+	# construct and return new monet.frame for rewritten query
+	monet.frame(conn,nquery)	
+}
+
+
+
+# TODO: implement
+#   ‘all’, ‘any’
+#   ‘prod’
+#   ‘range’ (?)
+
+# TODO: how to handle na.rm? Does SQL consider NULLs?
+
+Summary.monet.frame <- function(x,na.rm=FALSE) {
+	col <- make.db.names(attr(x,"resultSet")@env$conn,names(x)[[1]])
+	query <- attr(x,"resultSet")@env$query
+	conn <- attr(x,"conn")
+	
+	if (.Generic %in% c("min", "max", "sum")) {
+		# TODO: check if column is numeric
+		dbClearResult(attr(x,"resultSet"))
+		nexpr <- paste0(.Generic,"(",col,")")
+	}
+	if (nexpr == "") 
+		stop(.Generic, " not supported (yet). Sorry.")
+	
+	# replace the thing between SELECT and WHERE with the new value and return new monet.frame
+	nquery <- sub("select (.*?) from",paste0("select ",nexpr," from"),query,ignore.case=TRUE)
+	
+	# clear previous result set to free db resources waiting for fetch()
+	
+	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
+	
+	# construct and return new monet.frame for rewritten query
+	as.data.frame(monet.frame(conn,nquery))[[1]]	
+}
+
+
+#   ‘abs’, ‘sign’, ‘sqrt’, ‘floor’, ‘ceiling’, ‘trunc’, ‘round’, ‘signif’
+#   ‘exp’, ‘log’, ‘expm1’, ‘log1p’, ‘cos’, ‘sin’, ‘tan’, ‘acos’, ‘asin’, ‘atan’, ‘cosh’, ‘sinh’, ‘tanh’, ‘acosh’, ‘asinh’, ‘atanh’
+#   ‘lgamma’, ‘gamma’, ‘digamma’, ‘trigamma’
+#   ‘cumsum’, ‘cumprod’, ‘cummax’, ‘cummin’
+Math.monet.frame <- function(x) {
+	# TODO not now.
+}
+
+
+# 'borrowed' from sqlsurvey, translates a subset() argument to sqlish
+sqlexpr<-function(expr, design){
+	nms<-new.env(parent=emptyenv())
+	assign("%in%"," IN ", nms)
+	assign("&", " AND ", nms)
+	assign("=="," = ",nms)
+	assign("|"," OR ", nms)
+	assign("!"," NOT ",nms)
+	assign("I","",nms)
+	assign("~","",nms)
+	out <-textConnection("str","w",local=TRUE)
+	inorder<-function(e){
+		if(length(e) ==1) {
+			cat(e, file=out)
+		} else if (e[[1]]==quote(is.na)){
+			cat("(",file=out)
+			inorder(e[[2]])
+			cat(") IS NULL", file=out)
+		} else if (length(e)==2){
+			nm<-deparse(e[[1]])
+			if (exists(nm, nms)) nm<-get(nm,nms)
+			cat(nm, file=out)
+			cat("(", file=out)
+			inorder(e[[2]])
+			cat(")", file=out)
+		} else if (deparse(e[[1]])=="c"){
+			cat("(", file=out)
+			for(i in seq_len(length(e[-1]))) {
+				if(i>1) cat(",", file=out)
+				inorder(e[[i+1]])
+			}
+			cat(")", file=out)
+		} else if (deparse(e[[1]])==":"){
+			cat("(",file=out)
+			cat(paste(eval(e),collapse=","),file=out)
+			cat(")",file=out)
+		} else{
+			cat("(",file=out)
+			inorder(e[[2]])
+			nm<-deparse(e[[1]])
+			if (exists(nm,nms)) nm<-get(nm,nms)
+			cat(nm,file=out)
+			inorder(e[[3]])
+			cat(")",file=out)
+		}
+		
+	}
+	inorder(expr)
+	close(out)
+	paste("(",str,")")
+	
+}
 
 `[<-.monet.frame` <- `dim<-.monet.frame` <- `dimnames<-.monet.frame` <- `names<-.monet.frame` <- function(x, j, k, ..., value) {
 	stop("write operators not (yet) supported for monet.frame")
