@@ -259,21 +259,31 @@ Ops.monet.frame <- function(e1,e2) {
 #   ‘all’, ‘any’
 #   ‘prod’
 #   ‘range’ (?)
-
 # TODO: how to handle na.rm? Does SQL consider NULLs?
-
 Summary.monet.frame <- function(x,na.rm=FALSE) {
+	.col.func(x,.Generic)
+}
+
+mean.monet.frame <- avg.monet.frame <- function(x) {
+	.col.func(x,"avg")
+}
+
+# TODO: check if column is numeric
+
+.col.func <- function(x,func){
+	if (length(names(x)) != 1) 
+		stop(func, " only defined for one-column frames, consider using $ first")
+	
 	col <- make.db.names(attr(x,"resultSet")@env$conn,names(x)[[1]])
 	query <- attr(x,"resultSet")@env$query
 	conn <- attr(x,"conn")
 	
-	if (.Generic %in% c("min", "max", "sum")) {
-		# TODO: check if column is numeric
+	if (func %in% c("min", "max", "sum","avg")) {
 		dbClearResult(attr(x,"resultSet"))
-		nexpr <- paste0(.Generic,"(",col,")")
+		nexpr <- paste0(func,"(",col,")")
 	}
 	if (nexpr == "") 
-		stop(.Generic, " not supported (yet). Sorry.")
+		stop(func, " not supported (yet). Sorry.")
 	
 	# replace the thing between SELECT and WHERE with the new value and return new monet.frame
 	nquery <- sub("select (.*?) from",paste0("select ",nexpr," from"),query,ignore.case=TRUE)
@@ -283,7 +293,7 @@ Summary.monet.frame <- function(x,na.rm=FALSE) {
 	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
 	
 	# construct and return new monet.frame for rewritten query
-	as.data.frame(monet.frame(conn,nquery))[[1]]	
+	as.data.frame(monet.frame(conn,nquery))[[1]]
 }
 
 
@@ -294,7 +304,6 @@ Summary.monet.frame <- function(x,na.rm=FALSE) {
 Math.monet.frame <- function(x) {
 	# TODO not now.
 }
-
 
 # 'borrowed' from sqlsurvey, translates a subset() argument to sqlish
 sqlexpr<-function(expr, design){
