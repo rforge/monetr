@@ -176,7 +176,8 @@ subset.monet.frame<-function(x,subset,...){
 	monet.frame(attr(x,"conn"),nquery)	
 }
 
-#   ‘"+"’, ‘"-"’, ‘"*"’, ‘"/"’, ‘"^"’, ‘"%%"’, ‘"%/%"’
+# Works:   ‘"+"’, ‘"-"’, ‘"*"’, ‘"/"’, ‘"^"’, ‘"%%"’,
+# TODO: `"%/%"’
 #   ‘"&"’, ‘"|"’, ‘"!"’
 #   ‘"=="’, ‘"!="’, ‘"<"’, ‘"<="’, ‘">="’, ‘">"’
 Ops.monet.frame <- function(e1,e2) {
@@ -253,6 +254,7 @@ Ops.monet.frame <- function(e1,e2) {
 
 
 
+# works: min/max/sum
 # TODO: implement
 #   ‘all’, ‘any’
 #   ‘prod’
