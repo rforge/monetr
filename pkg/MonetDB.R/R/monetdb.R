@@ -36,7 +36,7 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
 	host <- hostportsplit[[1]][1]
 	port <- hostportsplit[[1]][2]
 	
-	cat(paste0("II: Connecting to MonetDB on host ",host," at port ",port, " to DB ", dbname, " with user ", user," and a non-printed password...\n"))
+	cat(paste0("II: Connecting to MonetDB on host ",host," at port ",port, " to DB ", dbname, " with user ", user," and a non-printed password, timeout is ",timeout," seconds.\n"))
 			
 	con <- socketConnection(host = host, port = port, blocking = TRUE, open="r+b",timeout=timeout)
 	.monetConnect(con,dbname,user,password)
@@ -163,7 +163,12 @@ setMethod("dbDataType", signature(dbObj="MonetDBConnection", obj = "ANY"), def =
 }, valueClass = "character")
 
 
-setMethod("dbRemoveTable", "MonetDBConnection", def=function(conn, name, ...) dbSendUpdate(conn, paste("DROP TABLE", name)))
+setMethod("dbRemoveTable", "MonetDBConnection", def=function(conn, name, ...) {
+			if (dbExistsTable(conn,name)) 
+				dbSendUpdate(conn, paste("DROP TABLE", name))
+				return(TRUE)
+			return(FALSE)
+		})
 
 # for compatibility with RMonetDB (and dbWriteTable support), we will allow parameters to this method, but will not use prepared statements internally
 if (is.null(getGeneric("dbSendUpdate"))) setGeneric("dbSendUpdate", function(conn, statement,...,async=FALSE) standardGeneric("dbSendUpdate"))
@@ -381,6 +386,7 @@ Q_TRANSACTION <- 4
 Q_PREPARE     <- 5
 Q_BLOCK       <- 6
 
+# TODO: make these values configuratble in the call to dbConnect
 DEBUG_IO      <- FALSE
 DEBUG_QUERY   <- FALSE
 
@@ -406,12 +412,11 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 	# ugly effect of finalizers, sometimes, single-threaded R can get concurrent calls to this method.
 	if (conObj@lock$lock > 0) {
 		if (async) {
-			cat(paste0("II: Attempted parallel access to socket. Deferred query '",msg,"'\n"))
+			if (DEBUG_IO) cat(paste0("II: Attempted parallel access to socket. Deferred query '",msg,"'\n"))
 			conObj@lock$deferred <- c(conObj@lock$deferred,msg)
 			return("_")
 		} else {
-			cat("II: Attempted parallel access to socket. Use only dbSendUpdateAsync() from finalizers.\n")
-			return("!Concurrent Access to Socket")
+			stop("II: Attempted parallel access to socket. Use only dbSendUpdateAsync() from finalizers.\n")
 		}
 	}
 	
@@ -437,8 +442,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 			conObj@lock$lock <- 0
 			warning(paste("II: Failed to execute deferred statement '",dmesg,"'. Server said: '",dresp$message,"'\n"))
 		}
-	}
-	
+	}	
 	# release lock
 	conObj@lock$lock <- 0
 	return(resp)
@@ -446,22 +450,19 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 
 .mapiCleanup <- function(conObj) {
 	if (conObj@lock$lock > 0) {
-		# try/catch the interrupt here, kill connection, reconnect, present warning message
-		cat("II: Cancelled query execution. We will reconnect in this R session. Beware that a long-running query in the MonetDB server in not affected by that, so please consider restarting the server.\n")
-		# TODO: actually close connection & reopen
+		cat("II: Interrupted query execution. Beware that a long-running query in the MonetDB server is NOT affected by this, so please consider restarting the server & reopen the connection.\n")
 		conObj@lock$lock <- 0
-		
 	}
 }
-
 
 .mapiRead <- function(con) {
 	resp <- list()
 	repeat {
 		unpacked <- readBin(con,"integer",n=1,size=2,signed=FALSE,endian="little")
 			
-		if (length(unpacked) == 0) 
+		if (length(unpacked) == 0) {
 			stop("Empty response from MonetDB server, probably a timeout. You can increase the time to wait for responses with the 'timeout' parameter to 'dbConnect()'.")
+		}
 		
 		length = bitShiftR(unpacked,1)
 		final = bitAnd(unpacked,1)
