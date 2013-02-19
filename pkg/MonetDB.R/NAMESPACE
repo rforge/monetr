@@ -5,10 +5,13 @@ export(MonetDB,MonetR,MonetDBR,MonetDB.R)
 export(monet.read.csv,monetdb.read.csv)
 # this one is not in the DBI
 exportMethods(dbSendUpdate,dbSendUpdateAsync,dbSendPrepare)
+export(monetdbGetTransferredBytes)
 
 # monet.frame things, this is an S3 class
 export(monet.frame)
 S3method(as.data.frame,monet.frame)
+S3method(as.vector,monet.frame)
+
 S3method("[",monet.frame)
 S3method("$",monet.frame)
 S3method(str,monet.frame)
