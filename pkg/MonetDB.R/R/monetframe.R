@@ -41,6 +41,12 @@ as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) 
 	res
 }
 
+as.vector <- function(x) {
+	if (ncol(x) != 1)
+		stop("as.vector can only be used on one-column monet.frame objects. Consider using $.")
+	as.data.frame(x)[[1]]	
+}
+
 # this is the fun part. this method has infinity ways of being invoked :(
 # http://stat.ethz.ch/R-manual/R-patched/library/base/html/Extract.data.frame.html
 

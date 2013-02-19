@@ -483,8 +483,12 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 			stop("Empty response from MonetDB server, probably a timeout. You can increase the time to wait for responses with the 'timeout' parameter to 'dbConnect()'.")
 		}
 		
-		length = bitShiftR(unpacked,1)
-		final = bitAnd(unpacked,1)
+		length <- bitShiftR(unpacked,1)
+		final <- bitAnd(unpacked,1)
+		
+		# counting transmitted bytes
+		.bytes.in <<- .bytes.in + length
+		
 		if (DEBUG_IO) cat(paste("II: Reading ",length," bytes, last: ",final==TRUE,"\n",sep=""))
 		if (length == 0) break
 		resp <- c(resp,readChar(con, length, useBytes = TRUE))		
@@ -505,6 +509,9 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 		bytes <- nchar(req)
 		pos <- pos + bytes
 		final <- max(nchar(msg) - pos,0) == 0
+		
+		# counting transmitted bytes
+		.bytes.out <<- .bytes.out + bytes
 		
 		if (DEBUG_IO) cat(paste("II: Writing ",bytes," bytes, last: ",final,"\n",sep=""))
 		
@@ -701,4 +708,14 @@ monet.read.csv <- monetdb.read.csv <- function(connection,files,tablename,nrows,
 		}
 	}
 	dbGetQuery(connection,paste("select count(*) from",tablename))
+}
+
+.bytes.in <- 0
+.bytes.out <- 0
+
+monetdbGetTransferredBytes <- function() {
+	ret <- list(bytes.in=.bytes.in,bytes.out=.bytes.out)
+	.bytes.in <<- 0
+	.bytes.out <<- 0
+	ret
 }
