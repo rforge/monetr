@@ -2,6 +2,10 @@ require(DBI)
 require(bitops)
 require(digest)
 
+# TODO: make these values configuratble in the call to dbConnect
+DEBUG_IO      <- FALSE
+DEBUG_QUERY   <- FALSE
+
 # Make S4 aware of S3 classes
 setOldClass(c("sockconn","connection"))
 
@@ -124,6 +128,24 @@ setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="characte
 })
 
 
+if (is.null(getGeneric("dbSendPrepare"))) setGeneric("dbSendPrepare", function(conn, statement,...) standardGeneric("dbSendPrepare"))
+setMethod("dbSendPrepare", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL) {
+	if(!is.null(list) || length(list(...))){
+		if (length(list(...))) statement <- .bindParameters(statement, list(...))
+		if (!is.null(list)) statement <- .bindParameters(statement, list)
+	}
+	
+	if (DEBUG_QUERY)  cat(paste("QQ: '",statement,"'\n",sep=""))
+	resp <- .mapiParseResponse(.mapiRequest(conn,paste0("p",statement,";"),async=async))
+	print(resp)
+	
+	if (!res@env$success) {
+		stop(paste(statement,"failed! Server says:",res@env$message))
+	}
+	TRUE
+})
+			
+
 # adapted from RMonetDB, very useful...
 setMethod("dbWriteTable", "MonetDBConnection", def=function(conn, name, value, overwrite=TRUE, ...) {
 	if (is.vector(value) && !is.list(value)) value <- data.frame(x=value)
@@ -231,7 +253,6 @@ setClass("MonetDBResult", representation("DBIResult",env="environment"))
 .CT_BOOL <- 4L
 .CT_RAW <- 5L
 
-
 # most of the heavy lifting here
 setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res, n, ...) {
 	if (!res@env$success) {
@@ -265,11 +286,11 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 			df[[i]] <- character()
 			ct[i] <- .CT_CHRR			
 		}
-		if (info$types[i] == c("BOOLEAN")) {
+		if (info$types[i] == "BOOLEAN") {
 			df[[i]] <- logical()
 			ct[i] <- .CT_BOOL			
 		}
-		if (info$types[i] == c("BLOB")) {
+		if (info$types[i] == "BLOB") {
 			df[[i]] <- raw()
 			ct[i] <- .CT_RAW
 		}
@@ -386,9 +407,7 @@ Q_TRANSACTION <- 4
 Q_PREPARE     <- 5
 Q_BLOCK       <- 6
 
-# TODO: make these values configuratble in the call to dbConnect
-DEBUG_IO      <- FALSE
-DEBUG_QUERY   <- FALSE
+
 
 
 REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a small result set. 
@@ -527,10 +546,10 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 			env$index	<- header$index
 			env$tables	<- .mapiParseTableHeader(lines[2])
 			env$names	<- .mapiParseTableHeader(lines[3])
-			env$types	<- toupper(.mapiParseTableHeader(lines[4]))
+			env$types	<- env$dbtypes <- toupper(.mapiParseTableHeader(lines[4]))
 			env$lengths	<- .mapiParseTableHeader(lines[5])
 			env$tuples	<- lines[6:length(lines)]
-			
+				
 			return(env)
 		}
 		# Continuation of Q_TABLE without headers describing table structure

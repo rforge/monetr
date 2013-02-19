@@ -15,7 +15,7 @@ monet.frame <- function(conn,thingy,...) {
 	query <- thingy
 	
 	if (dbExistsTable(conn,thingy)) {
-		query <-  paste0("SELECT * FROM ",make.db.names(conn,thingy,allow.keywords=FALSE))
+		query <- paste0("SELECT * FROM ",make.db.names(conn,thingy,allow.keywords=FALSE))
 	}
 	res <- dbSendQuery(conn, query)
 	if(!res@env$success)
@@ -176,133 +176,231 @@ subset.monet.frame<-function(x,subset,...){
 	monet.frame(attr(x,"conn"),nquery)	
 }
 
-# Works:   ‘"+"’, ‘"-"’, ‘"*"’, ‘"/"’, ‘"^"’, ‘"%%"’,
-# TODO: `"%/%"’
-#   ‘"&"’, ‘"|"’, ‘"!"’
-#   ‘"=="’, ‘"!="’, ‘"<"’, ‘"<="’, ‘">="’, ‘">"’
+# basic math and comparision operators
+#  ‘"+"’, ‘"-"’, ‘"*"’, ‘"/"’, ‘"^"’, ‘"%%"’, `"%/%"’ (only numeric)
+#  ‘"&"’, ‘"|"’, ‘"!"’ (only boolean)
+#  ‘"<"’, ‘"<="’, ‘">="’, ‘">"’  (only numeric)
+#  ‘"=="’, ‘"!="’ (generic)
+
 Ops.monet.frame <- function(e1,e2) {
 	unary <- nargs() == 1L
 	lclass <- nzchar(.Method[1L])
 	rclass <- !unary && (nzchar(.Method[2L]))
 	
 	# this will be the next SELECT x thing
-	nexpr <- ""
+	nexpr <- NA
 	
 	left <- right <- query <- queryresult <- conn <- NA
+	leftNum <- rightNum <- leftBool <- rightBool <- NA
 	
 	# both values are monet.frame
 	if (lclass && rclass) {
-		if (any(dim(e1) != dim(e2))) 
-			stop(.Generic, " only defined for equally-sized frames")
-		e1c <- names(e1)[[1]]
-		e2c <- names(e2)[[1]]
+		if (any(dim(e1) != dim(e2)) || ncol(e1) != 1 || ncol(e2) != 1) 
+			stop(.Generic, " only defined for one-column result sets of equal length.")
 		
-		# TODO: check whether both frames are from same table? how to do this otherwise? join?
-		# something like that, grep the FROM part and compare?
+		lquery <- query <- attr(e1,"resultSet")@env$query
+		conn <- attr(e1,"conn")
+		
+		rquery <- attr(e2,"resultSet")@env$query
+		
+		left <- sub("(select )(.*?)( from.*)","(\\2)",lquery,ignore.case=TRUE)
+		right <- sub("(select )(.*?)( from.*)","(\\2)",rquery,ignore.case=TRUE)
+		
+		leftrem <- sub("(select )(.*?)( from.*)","(\\1)X(\\3)",lquery,ignore.case=TRUE)
+		rightrem <- sub("(select )(.*?)( from.*)","(\\1)X(\\3)",rquery,ignore.case=TRUE)
+		
+		if (leftrem != rightrem) {
+			stop("left and right columns have to come from the same table with the same restrictions.")
+		}
+		
+		# some tests for data types
+		ltdf <- fetch(attr(e1,"resultSet"),1)
+		rtdf <- fetch(attr(e2,"resultSet"),1)
+		leftNum <- is.numeric(ltdf[[1]])
+		leftBool <- is.logical(ltdf[[1]])
+		rightNum <- is.numeric(rtdf[[1]])
+		rightBool <- is.logical(rtdf[[1]])
+		
+		dbClearResult(attr(e1,"resultSet"))
+		dbClearResult(attr(e2,"resultSet"))
 	}
-
-	# TODO: really close result set here? If this fails, fetch() will fail...
-	# TODO: check data types of db columns, have to be something numerical
 	
 	# left operand is monet.frame
 	else if (lclass) {
-		if (length(names(e1)) != 1) 
+		if (ncol(e1) != 1) 
 			stop(.Generic, " only defined for one-column frames, consider using $ first")
-		if (!is.numeric(e2))
-			stop(e2," is not a numeric operand.")
+		if (length(e2) != 1)
+			stop("Only single-value constants are supported.")
 		query <- attr(e1,"resultSet")@env$query
 		conn <- attr(e1,"conn")
-		dbClearResult(attr(e1,"resultSet"))
-		left <- make.db.names(attr(e1,"resultSet")@env$conn,names(e1)[[1]])
+		tdf <- fetch(attr(e1,"resultSet"),1)
+				
+		left <- sub("(select )(.*?)( from.*)","(\\2)",query,ignore.case=TRUE)
+	
+		leftNum <- is.numeric(tdf[[1]])
+		leftBool <- is.logical(tdf[[1]])
+		
 		right <- e2
+		rightNum <- is.numeric(e2)
+		rightBool <- is.logical(e2)
+		
+		dbClearResult(attr(e1,"resultSet"))
+		
 	}
+	
 	# right operand is monet.frame
 	else {
-		if (length(names(e2)) != 1) 
+		if (ncol(e2) != 1) 
 			stop(.Generic, " only defined for one-column frames, consider using $ first")
-		if (!is.numeric(e1))
-			stop(e1," is not a numeric operand.")
+		if (length(e1) != 1)
+			stop("Only single-value constants are supported.")
 		query <- attr(e2,"resultSet")@env$query
+		
+		right <- sub("(select )(.*?)( from.*)","(\\2)",query,ignore.case=TRUE)
+		
 		conn <- attr(e2,"conn")
-		dbClearResult(attr(e2,"resultSet"))
+		tdf <- fetch(attr(e2,"resultSet"),1)
+		
+		rightNum <- is.numeric(tdf[[1]])
+		rightBool <- is.logical(tdf[[1]])
+		
 		left <- e1
-		right <- make.db.names(attr(e2,"resultSet")@env$conn,names(e2)[[1]])
+		leftNum <- is.numeric(e1)
+		leftBool <- is.logical(e1)
+		
+		dbClearResult(attr(e2,"resultSet"))
 	}
-			
-	if (.Generic %in% c("+", "-", "*", "/")) {
+	
+	if (DEBUG_REWRITE)  cat(paste0("OP: ",.Generic," on ",left,", ",right,"\n",sep=""))	
+	
+	# mapping of R operators to DB operators...booring		
+	if (.Generic %in% c("+", "-", "*", "/","<",">","<=",">=")) {
+		if (!leftNum || !rightNum)
+			stop(.Generic, " only supported for numeric arguments")
 		nexpr <- paste0(left,.Generic,right)
 	}
 	if (.Generic == "^") {
+		if (!leftNum || !rightNum)
+			stop(.Generic, " only supported for numeric arguments")
 		nexpr <- paste0("POWER(",left,",",right,")")
 	}
 	if (.Generic == "%%") {
+		if (!leftNum || !rightNum)
+			stop(.Generic, " only supported for numeric arguments")
 		nexpr <- paste0(left,"%",right)
 	}
-	if (nexpr == "") 
+	
+	if (.Generic == "%/%") {
+		if (!leftNum || !rightNum)
+			stop(.Generic, " only supported for numeric arguments")
+		nexpr <- paste0(left,"%CAST(",right," AS BIGINT)")
+	}
+	
+	if (.Generic == "!") {
+		if (!leftBool)
+			stop(.Generic, " only supported for logical (boolean) arguments")
+		nexpr <- paste0("NOT(",left,")")
+	}
+	
+	if (.Generic == "&") {
+		if (!leftBool || !rightBool)
+			stop(.Generic, " only supported for logical (boolean) arguments")
+		nexpr <- paste0(left," AND ",right)
+	}
+	
+	if (.Generic == "|") {
+		if (!leftBool || !rightBool)
+			stop(.Generic, " only supported for logical (boolean) arguments")
+		nexpr <- paste0(left," OR ",right)
+	}
+	
+	if (.Generic == "==") {
+		nexpr <- paste0(left,"=",right)
+	}
+	
+	if (.Generic == "!=") {
+		nexpr <- paste0("NOT(",left,"=",right,")")
+	}
+		
+	if (is.na(nexpr)) 
 		stop(.Generic, " not supported (yet). Sorry.")
 	
 	# replace the thing between SELECT and WHERE with the new value and return new monet.frame
-	nquery <- sub("select (.*?) from",paste0("select ",nexpr," from"),query,ignore.case=TRUE)
-	
-	# clear previous result set to free db resources waiting for fetch()
-	
+	nquery <- sub("select (.*?) from",paste0("SELECT ",nexpr," FROM"),query,ignore.case=TRUE)
+		
 	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
 	
 	# construct and return new monet.frame for rewritten query
 	monet.frame(conn,nquery)	
 }
 
-
-
-# works: min/max/sum
-# TODO: implement
-#   ‘all’, ‘any’
-#   ‘prod’
-#   ‘range’ (?)
-# TODO: how to handle na.rm? Does SQL consider NULLs?
+# works: min/max/sum/range
+# TODO: implement  ‘all’, ‘any’, ‘prod’ (product)
 Summary.monet.frame <- function(x,na.rm=FALSE) {
-	.col.func(x,.Generic)
+	as.data.frame(.col.func(x,.Generic))[[1]]
 }
 
 mean.monet.frame <- avg.monet.frame <- function(x) {
-	.col.func(x,"avg")
+	as.data.frame(.col.func(x,"avg"))
 }
 
-# TODO: check if column is numeric
-
 .col.func <- function(x,func){
-	if (length(names(x)) != 1) 
-		stop(func, " only defined for one-column frames, consider using $ first")
+	if (ncol(x) != 1) 
+		stop(func, " only defined for one-column frames, consider using $ first.")
 	
-	col <- make.db.names(attr(x,"resultSet")@env$conn,names(x)[[1]])
+	tdf <- fetch(attr(x,"resultSet"),1)
+	if (!is.numeric(tdf[[1]]))
+		stop(names(x), " is not a numerical column.")
+	
 	query <- attr(x,"resultSet")@env$query
-	conn <- attr(x,"conn")
+	col <- sub("(select )(.*?)( from.*)","\\2",query,ignore.case=TRUE)
 	
-	if (func %in% c("min", "max", "sum","avg")) {
+	if (DEBUG_REWRITE)  cat(paste0("OP: ",func," on ",col,"\n",sep=""))	
+	
+	conn <- attr(x,"conn")
+	nexpr <- NA
+	
+	if (func %in% c("min", "max", "sum","avg","abs","sign","sqrt","floor","ceiling","exp","log","cos","sin","tan","acos","asin","atan","cosh","sinh","tanh")) {
 		dbClearResult(attr(x,"resultSet"))
-		nexpr <- paste0(func,"(",col,")")
+		nexpr <- paste0(toupper(func),"(",col,")")
 	}
-	if (nexpr == "") 
+	if (func == "range") {
+		return(c(.col.func(x,"min"),.col.func(x,"max")))
+	}
+		
+	if (is.na(nexpr)) 
 		stop(func, " not supported (yet). Sorry.")
 	
 	# replace the thing between SELECT and WHERE with the new value and return new monet.frame
-	nquery <- sub("select (.*?) from",paste0("select ",nexpr," from"),query,ignore.case=TRUE)
+	nquery <- sub("select (.*?) from",paste0("SELECT ",nexpr," FROM"),query,ignore.case=TRUE)
 	
 	# clear previous result set to free db resources waiting for fetch()
 	
 	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
 	
 	# construct and return new monet.frame for rewritten query
-	as.data.frame(monet.frame(conn,nquery))[[1]]
+	monet.frame(conn,nquery)
 }
 
+
+# TODO: implement or workaround non-native operators such as 
 
 #   ‘abs’, ‘sign’, ‘sqrt’, ‘floor’, ‘ceiling’, ‘trunc’, ‘round’, ‘signif’
 #   ‘exp’, ‘log’, ‘expm1’, ‘log1p’, ‘cos’, ‘sin’, ‘tan’, ‘acos’, ‘asin’, ‘atan’, ‘cosh’, ‘sinh’, ‘tanh’, ‘acosh’, ‘asinh’, ‘atanh’
 #   ‘lgamma’, ‘gamma’, ‘digamma’, ‘trigamma’
 #   ‘cumsum’, ‘cumprod’, ‘cummax’, ‘cummin’
-Math.monet.frame <- function(x) {
-	# TODO not now.
+Math.monet.frame <- function(x,digits=0) {
+	# yeah, baby...
+	if (.Generic == "acosh") {
+		return(log(x + sqrt(x^2-1)))
+	}
+	if (.Generic == "asinh") {
+		return(log(x + sqrt(x^2+1)))
+	}
+	if (.Generic == "atanh") {
+		return(0.5*log((1+x)/(1-x)))
+	}
+	return(.col.func(x,.Generic))
 }
 
 # 'borrowed' from sqlsurvey, translates a subset() argument to sqlish
