@@ -345,11 +345,11 @@ Ops.monet.frame <- function(e1,e2) {
 
 # works: min/max/sum/range
 # TODO: implement  ‘all’, ‘any’, ‘prod’ (product)
-Summary.monet.frame <- function(x,na.rm=FALSE) {
+Summary.monet.frame <- function(x,na.rm=FALSE,...) {
 	as.data.frame(.col.func(x,.Generic))[[1,1]]
 }
 
-mean.monet.frame <- avg.monet.frame <- function(x) {
+mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	as.data.frame(.col.func(x,"avg"))
 }
 
@@ -403,7 +403,7 @@ mean.monet.frame <- avg.monet.frame <- function(x) {
 
 # TODO: implement remaining operations: expm1, log1p, *gamma, cum*
 # Or just fallback to local calculation?
-Math.monet.frame <- function(x,digits=0) {
+Math.monet.frame <- function(x,digits=0,...) {
 	# yeah, baby...
 	if (.Generic == "acosh") {
 		return(log(x + sqrt(x^2-1)))
