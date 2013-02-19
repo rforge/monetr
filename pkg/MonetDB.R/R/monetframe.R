@@ -1,6 +1,7 @@
 # this wraps a sql database (in particular MonetDB) with a DBI connector 
 # to have it appear like a data.frame
 
+# show each step of rewriting the query
 DEBUG_REWRITE   <- FALSE
 
 
@@ -138,6 +139,15 @@ as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) 
 
 str.monet.frame <- summary.monet.frame <- function(object, ...) {
 	cat("MonetDB-backed data.frame surrogate\n")
+	# i agree this is overkill, but still...
+	nrows <- nrow(object)
+	ncols <- ncol(object)
+	rowsdesc <- "rows"
+	if (nrows == 1) rowsdesc <- "row"
+	colsdesc <- "columns"
+	if (ncols == 1) colsdesc <- "column"
+	cat(paste0(ncol(object)," ",colsdesc,", ",nrow(object)," ",rowsdesc,"\n"))
+	
 	cat(paste0("Query: ",attr(object,"resultSet")@env$query,"\n"))	
 	str(as.data.frame(object[1:6,,drop=FALSE]))
 }
@@ -344,7 +354,7 @@ mean.monet.frame <- avg.monet.frame <- function(x) {
 	as.data.frame(.col.func(x,"avg"))
 }
 
-.col.func <- function(x,func){
+.col.func <- function(x,func,extraarg=""){
 	if (ncol(x) != 1) 
 		stop(func, " only defined for one-column frames, consider using $ first.")
 	
@@ -361,16 +371,26 @@ mean.monet.frame <- avg.monet.frame <- function(x) {
 	nexpr <- NA
 	
 	if (func %in% c("min", "max", "sum","avg","abs","sign","sqrt","floor","ceiling","exp","log","cos","sin","tan","acos","asin","atan","cosh","sinh","tanh")) {
-		dbClearResult(attr(x,"resultSet"))
 		nexpr <- paste0(toupper(func),"(",col,")")
 	}
 	if (func == "range") {
 		return(c(.col.func(x,"min"),.col.func(x,"max")))
 	}
+	
+	if (func == "round") {
+		nexpr <- paste0("ROUND(",col,",",extraarg,")")
+	}
+	if (func == "signif") {
+		# in SQL, ROUND(123,-1) will zero 1 char from the rear (120), 
+		# in R, signif(123,1) will start from the front (100)
+		# so, let's adapt
+		nexpr <- paste0("ROUND(",col,",-1*LENGTH(",col,")+",extraarg,")")
+	}
 		
 	if (is.na(nexpr)) 
 		stop(func, " not supported (yet). Sorry.")
 	
+	dbClearResult(attr(x,"resultSet"))
 	# replace the thing between SELECT and WHERE with the new value and return new monet.frame
 	nquery <- sub("select (.*?) from",paste0("SELECT ",nexpr," FROM"),query,ignore.case=TRUE)
 	
@@ -383,12 +403,8 @@ mean.monet.frame <- avg.monet.frame <- function(x) {
 }
 
 
-# TODO: implement or workaround non-native operators such as 
-
-#   ‘abs’, ‘sign’, ‘sqrt’, ‘floor’, ‘ceiling’, ‘trunc’, ‘round’, ‘signif’
-#   ‘exp’, ‘log’, ‘expm1’, ‘log1p’, ‘cos’, ‘sin’, ‘tan’, ‘acos’, ‘asin’, ‘atan’, ‘cosh’, ‘sinh’, ‘tanh’, ‘acosh’, ‘asinh’, ‘atanh’
-#   ‘lgamma’, ‘gamma’, ‘digamma’, ‘trigamma’
-#   ‘cumsum’, ‘cumprod’, ‘cummax’, ‘cummin’
+# TODO: implement remaining operations: expm1, log1p, *gamma, cum*
+# Or just fallback to local calculation?
 Math.monet.frame <- function(x,digits=0) {
 	# yeah, baby...
 	if (.Generic == "acosh") {
@@ -399,6 +415,15 @@ Math.monet.frame <- function(x,digits=0) {
 	}
 	if (.Generic == "atanh") {
 		return(0.5*log((1+x)/(1-x)))
+	}
+	if (.Generic == "round") {
+		return(.col.func(x,"round",digits))	
+	}
+	if (.Generic == "trunc") {
+		return(.col.func(x,"round",0))	
+	}
+	if (.Generic == "signif") {
+		return(.col.func(x,"signif",digits))	
 	}
 	return(.col.func(x,.Generic))
 }
