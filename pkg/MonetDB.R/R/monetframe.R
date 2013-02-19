@@ -22,7 +22,15 @@ monet.frame <- function(conn,thingy,...) {
 	if(!res@env$success)
 		stop(paste0("Unable to execute (constructed) query '",query,"'. Server says '",res@env$message,"'."))
 	attr(obj,"resultSet") <- res
+	
+	reg.finalizer(obj,.finalizeFrame)
+	
 	return(obj)
+}
+
+# TODO: this kills too many result sets. Why?
+.finalizeFrame <- function(x) {
+	#dbClearResult(attr(x,"resultSet"))
 }
 
 .element.limit <- 10000000
@@ -34,17 +42,14 @@ as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) 
 		stop(paste0("The total number of elements to be loaded is larger than ",.element.limit,". This is probably very slow. Consider dropping columns and/or rows, e.g. using the [] function. If you really want to do this, call as.data.frame() with the warnSize parameter set to FALSE."))
 	# get result set object from frame
 	resultSet <- attr(x,"resultSet")
-	# fetch results
-	res <- fetch(resultSet,-1)
-	dbClearResult(resultSet)
 	# return
-	res
+	return(fetch(resultSet,-1))
 }
 
-as.vector.monet.frame <- function(x) {
+as.vector.monet.frame <- function(x,...) {
 	if (ncol(x) != 1)
 		stop("as.vector can only be used on one-column monet.frame objects. Consider using $.")
-	as.data.frame(x)[[1]]	
+	as.data.frame(x)[[1]]
 }
 
 # this is the fun part. this method has infinity ways of being invoked :(
@@ -114,9 +119,6 @@ as.vector.monet.frame <- function(x) {
 	if (((!is.na(cols) && length(cols) == 1) || (!is.na(rows) && length(rows) == 1)) && drop) 
 		warning("drop=TRUE for one-column or one-row results is not supported. Overriding to FALSE")
 	
-	# clear previous result set to free db resources waiting for fetch()
-	dbClearResult(attr(x,"resultSet"))
-	
 	# construct and return new monet.frame for rewritten query
 
 	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
@@ -170,6 +172,7 @@ dim.monet.frame <- function(x) {
 	c(attr(x,"resultSet")@env$info$rows,attr(x,"resultSet")@env$info$cols)
 }
 
+# TODO: fix issue with constant values, subset(x,foo > "bar")
 
 # http://stat.ethz.ch/R-manual/R-patched/library/base/html/subset.html
 subset.monet.frame<-function(x,subset,...){
@@ -183,9 +186,7 @@ subset.monet.frame<-function(x,subset,...){
 	else {
 		nquery <- sub("(group|having|order|limit|;|$)",paste0(" where ",restr," \\1"),query,ignore.case=TRUE)
 	}
-	# clear previous result set to free db resources waiting for fetch()
-	dbClearResult(attr(x,"resultSet"))
-	
+
 	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
 	
 	# construct and return new monet.frame for rewritten query
@@ -236,9 +237,6 @@ Ops.monet.frame <- function(e1,e2) {
 		leftBool <- is.logical(ltdf[[1]])
 		rightNum <- is.numeric(rtdf[[1]])
 		rightBool <- is.logical(rtdf[[1]])
-		
-		dbClearResult(attr(e1,"resultSet"))
-		dbClearResult(attr(e2,"resultSet"))
 	}
 	
 	# left operand is monet.frame
@@ -258,10 +256,7 @@ Ops.monet.frame <- function(e1,e2) {
 		
 		right <- e2
 		rightNum <- is.numeric(e2)
-		rightBool <- is.logical(e2)
-		
-		dbClearResult(attr(e1,"resultSet"))
-		
+		rightBool <- is.logical(e2)		
 	}
 	
 	# right operand is monet.frame
@@ -283,8 +278,6 @@ Ops.monet.frame <- function(e1,e2) {
 		left <- e1
 		leftNum <- is.numeric(e1)
 		leftBool <- is.logical(e1)
-		
-		dbClearResult(attr(e2,"resultSet"))
 	}
 	
 	if (DEBUG_REWRITE)  cat(paste0("OP: ",.Generic," on ",left,", ",right,"\n",sep=""))	
@@ -353,7 +346,7 @@ Ops.monet.frame <- function(e1,e2) {
 # works: min/max/sum/range
 # TODO: implement  ‘all’, ‘any’, ‘prod’ (product)
 Summary.monet.frame <- function(x,na.rm=FALSE) {
-	as.data.frame(.col.func(x,.Generic))[[1]]
+	as.data.frame(.col.func(x,.Generic))[[1,1]]
 }
 
 mean.monet.frame <- avg.monet.frame <- function(x) {
@@ -396,7 +389,6 @@ mean.monet.frame <- avg.monet.frame <- function(x) {
 	if (is.na(nexpr)) 
 		stop(func, " not supported (yet). Sorry.")
 	
-	dbClearResult(attr(x,"resultSet"))
 	# replace the thing between SELECT and WHERE with the new value and return new monet.frame
 	nquery <- sub("select (.*?) from",paste0("SELECT ",nexpr," FROM"),query,ignore.case=TRUE)
 	

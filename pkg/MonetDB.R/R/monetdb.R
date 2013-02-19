@@ -357,8 +357,8 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 })
 
 setMethod("dbClearResult", "MonetDBResult",	def = function(res, ...) {
-	.mapiWrite(res@env$conn@socket,paste0("Xclose ",res@env$info$id))
-	.mapiRead(res@env$conn@socket) == MSG_PROMPT
+	.mapiRequest(res@env$conn,paste0("Xclose ",res@env$info$id),async=TRUE)
+	TRUE	
 },valueClass = "logical")
 
 setMethod("dbHasCompleted", "MonetDBResult", def = function(res, ...) {

@@ -5,7 +5,6 @@ stopifnot(identical(dbGetInfo(drv)$name,"MonetDBDriver"))
 con <- dbConnect(drv, "monetdb://localhost:50000/acs", "monetdb", "monetdb",timeout=100)
 stopifnot(identical(class(con)[[1]],"MonetDBConnection"))
 
-
 # basic MAPI/SQL test
 stopifnot(identical(dbGetQuery(con,"SELECT 'DPFKG!'")[[1]],"DPFKG!"))
 
@@ -20,9 +19,7 @@ stopifnot(identical(dbExistsTable(con,"monetdbtest"),TRUE))
 dbSendUpdate(con,"INSERT INTO monetdbtest VALUES ('one',1,'1111')")
 dbSendUpdate(con,"INSERT INTO monetdbtest VALUES ('two',2,'22222222')")
 stopifnot(identical(dbGetQuery(con,"SELECT count(*) FROM monetdbtest")[[1]],2))
-dbReadTable(con,"monetdbtest")[[3]]
 stopifnot(identical(dbReadTable(con,"monetdbtest")[[3]],list(charToRaw("1111"),charToRaw("22222222"))))
-
 
 dbRemoveTable(con,"monetdbtest")
 stopifnot(identical(dbExistsTable(con,"monetdbtest"),FALSE))
@@ -70,7 +67,7 @@ stopifnot(identical(dbExistsTable(con,"monetdbtest"),FALSE))
 # test csv import
 file <- tempfile()
 write.table(iris,file,sep=",")
-monet.read.csv(con,file,"monetdbtest",150)
+monetdb.read.csv(con,file,"monetdbtest",150)
 unlink(file)
 stopifnot(identical(dbExistsTable(con,"monetdbtest"),TRUE))
 iris3 <- dbReadTable(con,"monetdbtest")
