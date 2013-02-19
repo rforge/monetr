@@ -23,7 +23,6 @@ S3method(Ops,monet.frame)
 S3method(Summary,monet.frame)
 S3method(Math,monet.frame)
 S3method(mean,monet.frame)
-S3method(avg,monet.frame)
 
 
 

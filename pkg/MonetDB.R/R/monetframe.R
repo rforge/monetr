@@ -41,7 +41,7 @@ as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) 
 	res
 }
 
-as.vector <- function(x) {
+as.vector.monet.frame <- function(x) {
 	if (ncol(x) != 1)
 		stop("as.vector can only be used on one-column monet.frame objects. Consider using $.")
 	as.data.frame(x)[[1]]	
