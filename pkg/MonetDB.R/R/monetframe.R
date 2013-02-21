@@ -6,17 +6,17 @@ DEBUG_REWRITE   <- FALSE
 
 
 # can either be given a query or simply a table name
-monet.frame <- function(conn,thingy,...) {
+monet.frame <- monetframe <- function(conn,tableOrQuery) {
 	if(missing(conn)) stop("'conn' must be specified")
-	if(missing(thingy)) stop("a sql query or a table name must be specified")
+	if(missing(tableOrQuery)) stop("a sql query or a table name must be specified")
 	
 	obj = new.env()
 	class(obj) = "monet.frame"
 	attr(obj,"conn") <- conn
-	query <- thingy
+	query <- tableOrQuery
 	
-	if (dbExistsTable(conn,thingy)) {
-		query <- paste0("SELECT * FROM ",make.db.names(conn,thingy,allow.keywords=FALSE))
+	if (dbExistsTable(conn,tableOrQuery)) {
+		query <- paste0("SELECT * FROM ",make.db.names(conn,tableOrQuery,allow.keywords=FALSE))
 	}
 	# get column names and types from prepare response
 	res <- dbGetQuery(conn, paste0("PREPARE ",query))
@@ -34,7 +34,7 @@ monet.frame <- function(conn,thingy,...) {
 
 .element.limit <- 10000000
 
-as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) {
+as.data.frame.monet.frame <- function(x, row.names, optional, warnSize=TRUE,...) {
 	# check if amount of tuples/fields is larger than some limit
 	# raise error if over limit and warnSize==TRUE
 	if (ncol(x)*nrow(x) > .element.limit && warnSize) 

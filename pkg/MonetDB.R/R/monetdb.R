@@ -35,10 +35,17 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
 	slashsplit <- strsplit(rest,"/",fixed=TRUE)
 	hostport <- slashsplit[[1]][1]
 	dbname <- slashsplit[[1]][2]
-	hostportsplit <- strsplit(hostport,":",fixed=TRUE)
+	
 	# TODO: handle IPv6 IPs, they contain : chars, later
-	host <- hostportsplit[[1]][1]
-	port <- hostportsplit[[1]][2]
+	if (length(grep(":",hostport,fixed=TRUE)) == 1) {
+		hostportsplit <- strsplit(hostport,":",fixed=TRUE)
+		host <- hostportsplit[[1]][1]
+		port <- hostportsplit[[1]][2]
+	}
+	else {
+		host <- hostport
+		port <- 50000 # MonetDB default port.
+	}
 	
 	cat(paste0("II: Connecting to MonetDB on host ",host," at port ",port, " to DB ", dbname, " with user ", user," and a non-printed password, timeout is ",timeout," seconds.\n"))
 			
@@ -95,6 +102,10 @@ setMethod("dbGetQuery", signature(conn="MonetDBConnection", statement="character
 
 # This one does all the work in this class
 setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL,async=FALSE) {
+	if(!is.null(list) || length(list(...))){
+		if (length(list(...))) statement <- .bindParameters(statement, list(...))
+		if (!is.null(list)) statement <- .bindParameters(statement, list)
+	}		
 	env <- NULL
 	if (DEBUG_QUERY)  cat(paste("QQ: '",statement,"'\n",sep=""))
 	resp <- .mapiParseResponse(.mapiRequest(conn,paste0("s",statement,";"),async=async))
@@ -125,24 +136,6 @@ setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="characte
 		env$message <- resp$message
 	}
 	return(new("MonetDBResult",env=env))
-})
-
-
-if (is.null(getGeneric("dbSendPrepare"))) setGeneric("dbSendPrepare", function(conn, statement,...) standardGeneric("dbSendPrepare"))
-setMethod("dbSendPrepare", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL) {
-	if(!is.null(list) || length(list(...))){
-		if (length(list(...))) statement <- .bindParameters(statement, list(...))
-		if (!is.null(list)) statement <- .bindParameters(statement, list)
-	}
-	
-	if (DEBUG_QUERY)  cat(paste("QQ: '",statement,"'\n",sep=""))
-	resp <- .mapiParseResponse(.mapiRequest(conn,paste0("p",statement,";"),async=async))
-	print(resp)
-	
-	if (!res@env$success) {
-		stop(paste(statement,"failed! Server says:",res@env$message))
-	}
-	TRUE
 })
 			
 
@@ -209,7 +202,7 @@ setMethod("dbSendUpdate", signature(conn="MonetDBConnection", statement="charact
 # this can be used in finalizers to not mess up the socket
 if (is.null(getGeneric("dbSendUpdateAsync"))) setGeneric("dbSendUpdateAsync", function(conn, statement, ...) standardGeneric("dbSendUpdateAsync"))
 setMethod("dbSendUpdateAsync", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ..., list=NULL) {
-	dbSendUpdate(conn,statement,async=async)
+	dbSendUpdate(conn,statement,async=TRUE)
 })
 
 .bindParameters <- function(statement,param) {
@@ -703,7 +696,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 # copied from RMonetDB, no java-specific things in here...
 # TODO: read first few rows with read.table and check types etc.
 
-monet.read.csv <- monetdb.read.csv <- function(connection,files,tablename,nrows,header=TRUE,locked=FALSE,na.strings="",...,nrow.check=500){
+monet.read.csv <- monetdb.read.csv <- function(conn,files,tablename,nrows,header=TRUE,locked=FALSE,na.strings="",...,nrow.check=500){
 	if (length(na.strings)>1) stop("na.strings must be of length 1")
 	headers<-lapply(files,read.csv,na.strings="NA",...,nrows=nrow.check)
 	
@@ -712,25 +705,25 @@ monet.read.csv <- monetdb.read.csv <- function(connection,files,tablename,nrows,
 		if (!all(nn==nn[1])) stop("Files have different numbers of columns")
 		nms<-sapply(headers,names)
 		if(!all(nms==nms[,1])) stop("Files have different variable names")
-		types<-sapply(headers,function(df) sapply(df,dbDataType,dbObj=connection))
+		types<-sapply(headers,function(df) sapply(df,dbDataType,dbObj=conn))
 		if(!all(types==types[,1])) stop("Files have different variable types")
 	} 
 	
-	dbWriteTable(connection, tablename, headers[[1]][FALSE,])
+	dbWriteTable(conn, tablename, headers[[1]][FALSE,])
 	
 	if(header || !missing(nrows)){
 		if (length(nrows)==1) nrows<-rep(nrows,length(files))
 		for(i in seq_along(files)) {
 			cat(files[i],thefile<-normalizePath(files[i]),"\n")
-			dbSendUpdate(connection, paste("copy",format(nrows[i],scientific=FALSE),"offset 2 records into", tablename,"from",paste("'",thefile,"'",sep=""),"using delimiters ',','\\n','\"' NULL as",paste("'",na.strings[1],"'",sep=""),if(locked) "LOCKED"))
+			dbSendUpdate(conn, paste("copy",format(nrows[i],scientific=FALSE),"offset 2 records into", tablename,"from",paste("'",thefile,"'",sep=""),"using delimiters ',','\\n','\"' NULL as",paste("'",na.strings[1],"'",sep=""),if(locked) "LOCKED"))
 		}
 	} else {
 		for(i in seq_along(files)) {
 			cat(files[i],thefile<-normalizePath(files[i]),"\n")
-			dbSendUpdate(connection, paste("copy into", tablename,"from",paste("'",thefile,"'",sep=""),"using delimiters ',','\\n','\"' NULL as ",paste("'",na.strings[1],"'",sep=""),if(locked) "LOCKED"))
+			dbSendUpdate(conn, paste("copy into", tablename,"from",paste("'",thefile,"'",sep=""),"using delimiters ',','\\n','\"' NULL as ",paste("'",na.strings[1],"'",sep=""),if(locked) "LOCKED"))
 		}
 	}
-	dbGetQuery(connection,paste("select count(*) from",tablename))
+	dbGetQuery(conn,paste("select count(*) from",tablename))
 }
 
 counterenv <- new.env(parent=emptyenv())
