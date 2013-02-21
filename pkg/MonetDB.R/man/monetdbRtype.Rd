@@ -11,7 +11,7 @@
   monetdbRtype ( dbType )
 }
 \arguments{
-  \item{dbType}{A database type string such as  \code{CHAR} or |code{INTEGER}.}
+  \item{dbType}{A database type string such as \code{CHAR} or \code{INTEGER}.}
  }
  
 \value{
