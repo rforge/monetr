@@ -18,19 +18,18 @@ monet.frame <- function(conn,thingy,...) {
 	if (dbExistsTable(conn,thingy)) {
 		query <- paste0("SELECT * FROM ",make.db.names(conn,thingy,allow.keywords=FALSE))
 	}
-	res <- dbSendQuery(conn, query)
-	if(!res@env$success)
-		stop(paste0("Unable to execute (constructed) query '",query,"'. Server says '",res@env$message,"'."))
-	attr(obj,"resultSet") <- res
+	# get column names and types from prepare response
+	res <- dbGetQuery(conn, paste0("PREPARE ",query))
 	
-	reg.finalizer(obj,.finalizeFrame)
+	attr(obj,"query") <- query
+	attr(obj,"ctypes") <- res$type
+	attr(obj,"cnames") <- res$column
+	attr(obj,"ncol") <- length(res$column)
+	attr(obj,"rtypes") <- lapply(res$type,monetdbRtype)
 	
+	# get result set length by rewriting to count(*), should be much faster
+	attr(obj,"nrow") <- dbGetQuery(conn,sub("(SELECT )(.*?)( FROM.*)","\\1COUNT(*)\\3",query,ignore.case=TRUE))[[1,1]]
 	return(obj)
-}
-
-# TODO: this kills too many result sets. Why?
-.finalizeFrame <- function(x) {
-	#dbClearResult(attr(x,"resultSet"))
 }
 
 .element.limit <- 10000000
@@ -41,9 +40,7 @@ as.data.frame.monet.frame <- function(x, row.names, optional,warnSize=TRUE,...) 
 	if (ncol(x)*nrow(x) > .element.limit && warnSize) 
 		stop(paste0("The total number of elements to be loaded is larger than ",.element.limit,". This is probably very slow. Consider dropping columns and/or rows, e.g. using the [] function. If you really want to do this, call as.data.frame() with the warnSize parameter set to FALSE."))
 	# get result set object from frame
-	resultSet <- attr(x,"resultSet")
-	# return
-	return(fetch(resultSet,-1))
+	return(dbGetQuery(attr(x,"conn"),attr(x,"query")))
 }
 
 as.vector.monet.frame <- function(x,...) {
@@ -58,7 +55,7 @@ as.vector.monet.frame <- function(x,...) {
 # TODO: handle negative indices and which() calls. which() like subset!
 
 "[.monet.frame" <- function(x, k, j,drop=TRUE) {	
-	nquery <- query <- attr(x,"resultSet")@env$query
+	nquery <- query <- getQuery(x)
 	
 	cols <- NA
 	rows <- NA
@@ -83,7 +80,7 @@ as.vector.monet.frame <- function(x,...) {
 		if (!all(cols %in% names(x)))
 			stop(paste0("Invalid column specification '",cols,"'. Column names have to be in set {",paste(names(x),collapse=", "),"}.",sep=""))			
 		
-		nquery <- sub("SELECT.+FROM",paste0("SELECT ",paste0(make.db.names(attr(x,"conn"),cols),collapse=", ")," FROM "),query)
+		nquery <- sub("SELECT.+FROM",paste0("SELECT ",paste0(make.db.names(attr(x,"conn"),cols),collapse=", ")," FROM"),query)
 	}
 	
 	if (length(rows) > 1 || !is.na(rows)) { # get around an error if cols is a vector...
@@ -145,6 +142,8 @@ as.vector.monet.frame <- function(x,...) {
 	FALSE
 }
 
+
+
 str.monet.frame <- summary.monet.frame <- function(object, ...) {
 	cat("MonetDB-backed data.frame surrogate\n")
 	# i agree this is overkill, but still...
@@ -160,23 +159,24 @@ str.monet.frame <- summary.monet.frame <- function(object, ...) {
 	str(as.data.frame(object[1:6,,drop=FALSE]))
 }
 
+# TODO: do something more clever here?
 print.monet.frame <- function(x, ...) {
 	print(as.data.frame(x))
 }
 
 names.monet.frame <- function(x) {
-	attr(x,"resultSet")@env$info$names
+	attr(x,"cnames")
 }
 
 dim.monet.frame <- function(x) {
-	c(attr(x,"resultSet")@env$info$rows,attr(x,"resultSet")@env$info$cols)
+	c(attr(x,"nrow"),attr(x,"ncol"))
 }
 
 # TODO: fix issue with constant values, subset(x,foo > "bar")
 
 # http://stat.ethz.ch/R-manual/R-patched/library/base/html/subset.html
 subset.monet.frame<-function(x,subset,...){
-	query <- attr(x,"resultSet")@env$query
+	query <- getQuery(x)
 	subset<-substitute(subset)
 	restr <- sqlexpr(subset)
 
@@ -215,10 +215,10 @@ Ops.monet.frame <- function(e1,e2) {
 		if (any(dim(e1) != dim(e2)) || ncol(e1) != 1 || ncol(e2) != 1) 
 			stop(.Generic, " only defined for one-column result sets of equal length.")
 		
-		lquery <- query <- attr(e1,"resultSet")@env$query
+		lquery <- query <- getQuery(e1)
 		conn <- attr(e1,"conn")
 		
-		rquery <- attr(e2,"resultSet")@env$query
+		rquery <- getQuery(e2)
 		
 		left <- sub("(select )(.*?)( from.*)","(\\2)",lquery,ignore.case=TRUE)
 		right <- sub("(select )(.*?)( from.*)","(\\2)",rquery,ignore.case=TRUE)
@@ -231,12 +231,11 @@ Ops.monet.frame <- function(e1,e2) {
 		}
 		
 		# some tests for data types
-		ltdf <- fetch(attr(e1,"resultSet"),1)
-		rtdf <- fetch(attr(e2,"resultSet"),1)
-		leftNum <- is.numeric(ltdf[[1]])
-		leftBool <- is.logical(ltdf[[1]])
-		rightNum <- is.numeric(rtdf[[1]])
-		rightBool <- is.logical(rtdf[[1]])
+				
+		leftNum <- attr(e1,"rtypes")[[1]] == "numeric"
+		leftBool <- attr(e1,"rtypes")[[1]] == "logical"
+		rightNum <- attr(e2,"rtypes")[[1]] == "numeric"
+		rightBool <- attr(e2,"rtypes")[[1]] == "logical"
 	}
 	
 	# left operand is monet.frame
@@ -245,14 +244,13 @@ Ops.monet.frame <- function(e1,e2) {
 			stop(.Generic, " only defined for one-column frames, consider using $ first")
 		if (length(e2) != 1)
 			stop("Only single-value constants are supported.")
-		query <- attr(e1,"resultSet")@env$query
+		query <- getQuery(e1)
 		conn <- attr(e1,"conn")
-		tdf <- fetch(attr(e1,"resultSet"),1)
 				
 		left <- sub("(select )(.*?)( from.*)","(\\2)",query,ignore.case=TRUE)
 	
-		leftNum <- is.numeric(tdf[[1]])
-		leftBool <- is.logical(tdf[[1]])
+		leftNum <- attr(e1,"rtypes")[[1]] == "numeric"
+		leftBool <- attr(e1,"rtypes")[[1]] == "logical"
 		
 		right <- e2
 		rightNum <- is.numeric(e2)
@@ -265,15 +263,14 @@ Ops.monet.frame <- function(e1,e2) {
 			stop(.Generic, " only defined for one-column frames, consider using $ first")
 		if (length(e1) != 1)
 			stop("Only single-value constants are supported.")
-		query <- attr(e2,"resultSet")@env$query
+		query <- getQuery(e2)
 		
 		right <- sub("(select )(.*?)( from.*)","(\\2)",query,ignore.case=TRUE)
 		
 		conn <- attr(e2,"conn")
-		tdf <- fetch(attr(e2,"resultSet"),1)
 		
-		rightNum <- is.numeric(tdf[[1]])
-		rightBool <- is.logical(tdf[[1]])
+		rightNum <- attr(e2,"rtypes")[[1]] == "numeric"
+		rightBool <- attr(e2,"rtypes")[[1]] == "logical"
 		
 		left <- e1
 		leftNum <- is.numeric(e1)
@@ -357,11 +354,10 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	if (ncol(x) != 1) 
 		stop(func, " only defined for one-column frames, consider using $ first.")
 	
-	tdf <- fetch(attr(x,"resultSet"),1)
-	if (!is.numeric(tdf[[1]]))
+	if (attr(x,"rtypes")[[1]] != "numeric")
 		stop(names(x), " is not a numerical column.")
 	
-	query <- attr(x,"resultSet")@env$query
+	query <- getQuery(x)
 	col <- sub("(select )(.*?)( from.*)","\\2",query,ignore.case=TRUE)
 	
 	if (DEBUG_REWRITE)  cat(paste0("OP: ",func," on ",col,"\n",sep=""))	
@@ -477,6 +473,10 @@ sqlexpr<-function(expr, design){
 	close(out)
 	paste("(",str,")")
 	
+}
+
+getQuery <- function(x) {
+	attr(x,"query")
 }
 
 `[<-.monet.frame` <- `dim<-.monet.frame` <- `dimnames<-.monet.frame` <- `names<-.monet.frame` <- function(x, j, k, ..., value) {

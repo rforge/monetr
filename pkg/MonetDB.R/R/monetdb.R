@@ -253,6 +253,27 @@ setClass("MonetDBResult", representation("DBIResult",env="environment"))
 .CT_BOOL <- 4L
 .CT_RAW <- 5L
 
+monetdbRtype <- function(dbType) {
+	dbType <- toupper(dbType)
+	if (dbType %in% c("TINYINT","SMALLINT","INT","BIGINT","REAL","DOUBLE","DECIMAL","WRD")) {			
+		return("numeric")
+	}
+	if (dbType %in% c("CHAR","VARCHAR","CLOB","STR")) {
+		return("character")		
+	}
+	if (dbType %in% c("INTERVAL","DATE","TIME","TIMESTAMP")) {
+		return("date")	
+	}
+	if (dbType == "BOOLEAN") {
+		return("logical")			
+	}
+	if (dbType == "BLOB") {
+		return("raw")
+	}
+	stop("Unknown DB type ", dbType)
+}
+
+
 # most of the heavy lifting here
 setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res, n, ...) {
 	if (!res@env$success) {
@@ -273,24 +294,26 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 	# prepare the result holder df with columns of the appropriate type
 	df = list()
 	ct <- rep(0L,info$cols)
+	
 	for (i in seq.int(info$cols)) {
-		if (info$types[i] %in% c("TINYINT","SMALLINT","INT","BIGINT","REAL","DOUBLE","DECIMAL","WRD")) {			
+		rtype <- monetdbRtype(info$types[i])
+		if (rtype=="numeric") {			
 			df[[i]] <- numeric()
 			ct[i] <- .CT_NUM
 		}
-		if (info$types[i] %in% c("CHAR","VARCHAR","CLOB")) {
+		if (rtype=="character") {
 			df[[i]] <- character()
 			ct[i] <- .CT_CHR			
 		}
-		if (info$types[i] %in% c("INTERVAL","DATE","TIME","TIMESTAMP")) {
+		if (rtype=="date") {
 			df[[i]] <- character()
 			ct[i] <- .CT_CHRR			
 		}
-		if (info$types[i] == "BOOLEAN") {
+		if (rtype=="logical") {
 			df[[i]] <- logical()
 			ct[i] <- .CT_BOOL			
 		}
-		if (info$types[i] == "BLOB") {
+		if (rtype=="raw") {
 			df[[i]] <- raw()
 			ct[i] <- .CT_RAW
 		}
@@ -322,7 +345,7 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 	
 	# translate "nothing" from SQL-ian to R-ese
 	parts[parts=="NULL"] <- NA
-
+	
 	# convert values column by column
 	for (j in seq.int(info$cols)) {	
 		col <- ct[[j]]
@@ -542,7 +565,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 		env <- new.env(parent=emptyenv())
 		
 		# Query results
-		if (typeKey == Q_TABLE) {
+		if (typeKey == Q_TABLE || typeKey == Q_PREPARE) {
 			header <- .mapiParseHeader(lines[1])
 			if (DEBUG_QUERY) cat(paste("QQ: Query result for query ",header$id," with ",header$rows," rows and ",header$cols," cols, ",header$index," rows\n",sep=""))
 		
@@ -556,7 +579,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 			env$types	<- env$dbtypes <- toupper(.mapiParseTableHeader(lines[4]))
 			env$lengths	<- .mapiParseTableHeader(lines[5])
 			env$tuples	<- lines[6:length(lines)]
-				
+			
 			return(env)
 		}
 		# Continuation of Q_TABLE without headers describing table structure

@@ -1,5 +1,4 @@
-source("R/monetdb.R")
-source("R/monetframe.R")
+library(MonetDB.R)
 
 con <- dbConnect(dbDriver("MonetDB"), "monetdb://localhost:50000/acs", "monetdb", "monetdb",timeout=100)
 

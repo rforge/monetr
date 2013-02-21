@@ -1,4 +1,5 @@
 library(MonetDB.R)
+
 drv <- dbDriver("MonetDB")
 stopifnot(identical(dbGetInfo(drv)$name,"MonetDBDriver"))
 
