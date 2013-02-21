@@ -155,7 +155,7 @@ str.monet.frame <- summary.monet.frame <- function(object, ...) {
 	if (ncols == 1) colsdesc <- "column"
 	cat(paste0(ncol(object)," ",colsdesc,", ",nrow(object)," ",rowsdesc,"\n"))
 	
-	cat(paste0("Query: ",attr(object,"resultSet")@env$query,"\n"))	
+	cat(paste0("Query: ",getQuery(object),"\n"))	
 	str(as.data.frame(object[1:6,,drop=FALSE]))
 }
 
