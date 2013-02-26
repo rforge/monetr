@@ -2,7 +2,8 @@
 # to have it appear like a data.frame
 
 # can either be given a query or simply a table name
-monet.frame <- monetframe <- function(conn,tableOrQuery,debug=FALSE) {
+# now supports hints on table structure to speed up initialization
+monet.frame <- monetframe <- function(conn,tableOrQuery,debug=FALSE,rtypes.hint=NA,cnames.hint=NA,ncol.hint=NA,nrow.hint=NA) {
 	if(missing(conn)) stop("'conn' must be specified")
 	if(missing(tableOrQuery)) stop("a sql query or a table name must be specified")
 	
@@ -11,34 +12,51 @@ monet.frame <- monetframe <- function(conn,tableOrQuery,debug=FALSE) {
 	attr(obj,"conn") <- conn
 	query <- tableOrQuery
 	
-	if (dbExistsTable(conn,tableOrQuery)) {
+	if (length(grep("^SELECT.*",tableOrQuery,ignore.case=TRUE)) == 0) {
 		query <- paste0("SELECT * FROM ",make.db.names(conn,tableOrQuery,allow.keywords=FALSE))
 	}
 	
-	# strip away things the prepare does not like
-	coltestquery <- gsub("SELECT (.*?) FROM (.*?) (ORDER|LIMIT|OFFSET).*","SELECT \\1 FROM \\2",query,ignore.case=TRUE)
-
-	# get column names and types from prepare response
-	res <- dbGetQuery(conn, paste0("PREPARE ",coltestquery))
-	
 	attr(obj,"query") <- query
 	attr(obj,"debug") <- debug
-	attr(obj,"ctypes") <- res$type
-	attr(obj,"cnames") <- res$column
-	attr(obj,"ncol") <- length(res$column)
-	attr(obj,"rtypes") <- lapply(res$type,monetdbRtype)
 	
-	# get result set length by rewriting to count(*), should be much faster
-	# temporarily remove offset/limit, as this screws up counting
-	counttestquery <- sub("(SELECT )(.*?)( FROM.*)","\\1COUNT(*)\\3",coltestquery,ignore.case=TRUE)
-	nrow <- dbGetQuery(conn,counttestquery)[[1,1]] - .getOffset(query)
-
-	limit <- .getLimit(query)
-	if (limit > 0) nrow <- min(nrow,limit)
-	if (nrow < 1) 
-		stop(query, " has zero-row result set. Meh.")
+	if (debug) cat(paste0("QQ: '",query,"'\n",sep=""))	
 	
-	attr(obj,"nrow") <- nrow
+	if (!is.na(nrow.hint) && !is.na(cnames.hint) && !is.na(ncol.hint) && !is.na(rtypes.hint)) {
+		attr(obj,"cnames") <- cnames.hint
+		attr(obj,"ncol") <- ncol.hint
+		attr(obj,"rtypes") <- rtypes.hint
+		
+	} else {
+		# strip away things the prepare does not like
+		coltestquery <- gsub("SELECT (.*?) FROM (.*?) (ORDER|LIMIT|OFFSET).*","SELECT \\1 FROM \\2",query,ignore.case=TRUE)
+		
+		# get column names and types from prepare response
+		res <- dbGetQuery(conn, paste0("PREPARE ",coltestquery))
+		attr(obj,"cnames") <- res$column
+		attr(obj,"ncol") <- length(res$column)
+		attr(obj,"rtypes") <- lapply(res$type,monetdbRtype)
+		if (debug) cat(paste0("II: 'Re-Initializing column info.'\n",sep=""))	
+		
+	}
+	
+	if (!is.na(nrow.hint)) {
+		attr(obj,"nrow") <- nrow.hint
+	}
+	else {
+		# get result set length by rewriting to count(*), should be much faster
+		# temporarily remove offset/limit, as this screws up counting
+		counttestquery <- sub("(SELECT )(.*?)( FROM.*)","\\1COUNT(*)\\3",coltestquery,ignore.case=TRUE)
+		nrow <- dbGetQuery(conn,counttestquery)[[1,1]] - .getOffset(query)
+	
+		limit <- .getLimit(query)
+		if (limit > 0) nrow <- min(nrow,limit)
+		if (nrow < 1) 
+			stop(query, " has zero-row result set. Meh.")
+		
+		attr(obj,"nrow") <- nrow
+		if (debug) cat(paste0("II: 'Re-Initializing row count.'\n",sep=""))	
+		
+	}
 	return(obj)
 }
 
@@ -58,6 +76,8 @@ as.data.frame.monet.frame <- adf <- function(x, row.names, optional, warnSize=TR
 	if (ncol(x)*nrow(x) > .element.limit && warnSize) 
 		stop(paste0("The total number of elements to be loaded is larger than ",.element.limit,". This is probably very slow. Consider dropping columns and/or rows, e.g. using the [] function. If you really want to do this, call as.data.frame() with the warnSize parameter set to FALSE."))
 	# get result set object from frame
+	if (.is.debug(x)) cat(paste0("EX: '",attr(x,"query"),"'\n",sep=""))	
+	
 	return(dbGetQuery(attr(x,"conn"),attr(x,"query")))
 }
 
@@ -71,12 +91,18 @@ as.vector.monet.frame <- av <- function(x,...) {
 # http://stat.ethz.ch/R-manual/R-patched/library/base/html/Extract.data.frame.html
 
 # TODO: handle negative indices and which() calls. which() like subset!
+# TODO: subset calls destroy nrows hint
 
 "[.monet.frame" <- function(x, k, j,drop=TRUE) {	
 	nquery <- query <- getQuery(x)
 	
 	cols <- NA
 	rows <- NA
+	
+	nrow.hint <- nrow(x)
+	ncol.hint <- ncol(x)
+	cnames.hint <- NA
+	rtypes.hint <- NA
 	
 	# biiig fun with nargs to differentiate d[1,] and d[1]
 	# all in the presence of the optional drop argument, yuck!
@@ -98,6 +124,10 @@ as.vector.monet.frame <- av <- function(x,...) {
 		if (!all(cols %in% names(x)))
 			stop(paste0("Invalid column specification '",cols,"'. Column names have to be in set {",paste(names(x),collapse=", "),"}.",sep=""))			
 		
+		rtypes.hint <- rTypes(x)[match(cols,names(x)),drop=TRUE]
+		ncol.hint <- length(cols)
+		cnames.hint <- cols
+		
 		nquery <- sub("SELECT.+FROM",paste0("SELECT ",paste0(make.db.names(attr(x,"conn"),cols),collapse=", ")," FROM"),query)
 	}
 	
@@ -116,6 +146,7 @@ as.vector.monet.frame <- av <- function(x,...) {
 			# TODO: is this safe? UNION queries are particularly dangerous, again...
 			nquery <- gsub("limit[ ]+\\d+|offset[ ]+\\d+","",nquery,ignore.case=TRUE)
 			nquery <- sub(";? *$",paste0(" LIMIT ",limit," OFFSET ",offset),nquery,ignore.case=TRUE)
+			nrow.hint <- limit
 		}
 		else 
 			warning(paste("row specification has to be sequential, but ",paste(rows,collapse=",")," is not. Try as.data.frame(x)[c(",paste(rows,collapse=","),"),] instead.",sep=""))
@@ -127,10 +158,7 @@ as.vector.monet.frame <- av <- function(x,...) {
 		warning("drop=TRUE for one-column or one-row results is not supported. Overriding to FALSE")
 	
 	# construct and return new monet.frame for rewritten query
-
-	if (.is.debug(x))  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
-
-	monet.frame(attr(x,"conn"),nquery,.is.debug(x))
+	monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=nrow.hint,ncol.hint=ncol.hint, cnames.hint=cnames.hint, rtypes.hint=rtypes.hint)
 }
 
 .getOffset <- function(query) {
@@ -184,10 +212,6 @@ str.monet.frame <- function(object, ...) {
 	cat(paste0("Columns: ",paste0(names(object)," (",attr(object,"rtypes"),")",collapse=", "),"\n"))	
 }
 
-.colsummary <- function (object, ..., digits = max(3, getOption("digits") - 3)) {
-	
-	
-}
 
 # TODO: ask thomas how to do this nicer..
 .filter.na <- function(x){
@@ -267,11 +291,13 @@ subset.monet.frame<-function(x,ssdef,...){
 	else {
 		nquery <- sub("(GROUP|HAVING|ORDER[ ]+BY|LIMIT|OFFSET|;|$)",paste0(" WHERE ",restr," \\1"),query,ignore.case=TRUE)
 	}
-
-	if (.is.debug(x))  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
 	
 	# construct and return new monet.frame for rewritten query
-	monet.frame(attr(x,"conn"),nquery,.is.debug(x))	
+	monet.frame(attr(x,"conn"),nquery,.is.debug(x),ncol.hint=NA, cnames.hint=names(x), rtypes.hint=rTypes(x))	
+}
+
+rTypes <- function(x) {
+	attr(x,"rtypes")
 }
 
 # basic math and comparision operators
@@ -287,6 +313,7 @@ Ops.monet.frame <- function(e1,e2) {
 	
 	# this will be the next SELECT x thing
 	nexpr <- NA
+	nrow.hint <- NA
 	
 	left <- right <- query <- queryresult <- conn <- NA
 	leftNum <- rightNum <- leftBool <- rightBool <- NA
@@ -298,6 +325,8 @@ Ops.monet.frame <- function(e1,e2) {
 		
 		lquery <- query <- getQuery(e1)
 		conn <- attr(e1,"conn")
+		nrow.hint <- nrow(e1)
+		
 		isdebug <- .is.debug(e1) || .is.debug(e2)
 		rquery <- getQuery(e2)
 		
@@ -313,10 +342,10 @@ Ops.monet.frame <- function(e1,e2) {
 		
 		# some tests for data types
 				
-		leftNum <- attr(e1,"rtypes")[[1]] == "numeric"
-		leftBool <- attr(e1,"rtypes")[[1]] == "logical"
-		rightNum <- attr(e2,"rtypes")[[1]] == "numeric"
-		rightBool <- attr(e2,"rtypes")[[1]] == "logical"
+		leftNum   <- rTypes(e1)[[1]] == "numeric"
+		leftBool  <- rTypes(e1)[[1]] == "logical"
+		rightNum  <- rTypes(e2)[[1]] == "numeric"
+		rightBool <- rTypes(e2)[[1]] == "logical"
 	}
 	
 	# left operand is monet.frame
@@ -328,14 +357,16 @@ Ops.monet.frame <- function(e1,e2) {
 		query <- getQuery(e1)
 		isdebug <- .is.debug(e1)
 		conn <- attr(e1,"conn")
+		nrow.hint <- nrow(e1)
+		
 				
 		left <- sub("(select )(.*?)( from.*)","(\\2)",query,ignore.case=TRUE)
 	
-		leftNum <- attr(e1,"rtypes")[[1]] == "numeric"
-		leftBool <- attr(e1,"rtypes")[[1]] == "logical"
+		leftNum   <- rTypes(e1)[[1]] == "numeric"
+		leftBool  <- rTypes(e1)[[1]] == "logical"
 		
 		right <- e2
-		rightNum <- is.numeric(e2)
+		rightNum  <- is.numeric(e2)
 		rightBool <- is.logical(e2)		
 	}
 	
@@ -351,14 +382,17 @@ Ops.monet.frame <- function(e1,e2) {
 		
 		conn <- attr(e2,"conn")
 		isdebug <- .is.debug(e2)
+		nrow.hint <- nrow(e2)
 		
-		rightNum <- attr(e2,"rtypes")[[1]] == "numeric"
-		rightBool <- attr(e2,"rtypes")[[1]] == "logical"
+		rightNum  <- rTypes(e2)[[1]] == "numeric"
+		rightBool <- rTypes(e2)[[1]] == "logical"
 		
 		left <- e1
 		leftNum <- is.numeric(e1)
 		leftBool <- is.logical(e1)
 	}
+	
+	rtypes.hint <- c("numeric")
 		
 	# mapping of R operators to DB operators...booring		
 	if (.Generic %in% c("+", "-", "*", "/","<",">","<=",">=")) {
@@ -387,26 +421,31 @@ Ops.monet.frame <- function(e1,e2) {
 		if (!leftBool)
 			stop(.Generic, " only supported for logical (boolean) arguments")
 		nexpr <- paste0("NOT(",left,")")
+		rtypes.hint <- c("logical")
 	}
 	
 	if (.Generic == "&") {
 		if (!leftBool || !rightBool)
 			stop(.Generic, " only supported for logical (boolean) arguments")
 		nexpr <- paste0(left," AND ",right)
+		rtypes.hint <- c("logical")
 	}
 	
 	if (.Generic == "|") {
 		if (!leftBool || !rightBool)
 			stop(.Generic, " only supported for logical (boolean) arguments")
 		nexpr <- paste0(left," OR ",right)
+		rtypes.hint <- c("logical")
 	}
 	
 	if (.Generic == "==") {
 		nexpr <- paste0(left,"=",right)
+		rtypes.hint <- c("logical")
 	}
 	
 	if (.Generic == "!=") {
 		nexpr <- paste0("NOT(",left,"=",right,")")
+		rtypes.hint <- c("logical")
 	}
 		
 	if (is.na(nexpr)) 
@@ -414,21 +453,21 @@ Ops.monet.frame <- function(e1,e2) {
 	
 	# replace the thing between SELECT and WHERE with the new value and return new monet.frame
 	nquery <- sub("select (.*?) from",paste0("SELECT ",nexpr," FROM"),query,ignore.case=TRUE)
-		
-	if (isdebug)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
-	
+			
 	# construct and return new monet.frame for rewritten query
-	monet.frame(conn,nquery,isdebug)	
+	cnames.hint <- c(paste0(.Generic,"_result"))
+
+	monet.frame(conn,nquery,isdebug,nrow.hint=nrow.hint,ncol.hint=1,cnames.hint=cnames.hint, rtypes.hint=rtypes.hint)	
 }
 
 # works: min/max/sum/range
 # TODO: implement  ‘all’, ‘any’, ‘prod’ (product)
 Summary.monet.frame <- function(x,na.rm=FALSE,...) {
-	as.data.frame(.col.func(x,.Generic))[[1,1]]
+	adf(.col.func(x,.Generic))[[1,1]]
 }
 
 mean.monet.frame <- avg.monet.frame <- function(x,...) {
-	as.data.frame(.col.func(x,"avg"))[[1,1]]
+	adf(.col.func(x,"avg"))[[1,1]]
 }
 
 .col.func <- function(x,func,extraarg=""){
@@ -440,9 +479,7 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	
 	query <- getQuery(x)
 	col <- sub("(select )(.*?)( from.*)","\\2",query,ignore.case=TRUE)
-	
-	if (.is.debug(x))  cat(paste0("OP: ",func," on ",col,"\n",sep=""))	
-	
+		
 	conn <- attr(x,"conn")
 	nexpr <- NA
 	
@@ -468,13 +505,12 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	
 	# replace the thing between SELECT and WHERE with the new value and return new monet.frame
 	nquery <- sub("select (.*?) from",paste0("SELECT ",nexpr," FROM"),query,ignore.case=TRUE)
-	
-	# clear previous result set to free db resources waiting for fetch()
-	
-	if (.is.debug(x)) cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
-	
+			
 	# construct and return new monet.frame for rewritten query
-	monet.frame(conn,nquery,.is.debug(x))
+	cnames.hint <- c(paste0(func,"_result"))
+	rtypes.hint <- c("numeric")
+	
+	monet.frame(conn,nquery,.is.debug(x),ncol.hint=1,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)
 }
 
 
@@ -528,10 +564,8 @@ sort.monet.frame <- function (x, decreasing = FALSE, ...) {
 	orderby <- paste0("ORDER BY ",names(x)[[1]]) # TODO: make.db.names?
 	if (decreasing) orderby <- paste0(orderby," DESC")
 	
-	nquery <- sub("SELECT (.*?) (LIMIT|OFFSET|;)",paste0("SELECT \\1 ",orderby," \\2"),nquery,ignore.case=TRUE)
-	if (.is.debug(x)) cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
-	
-	monet.frame(conn,nquery)
+	nquery <- sub("SELECT (.*?) (LIMIT|OFFSET|;)",paste0("SELECT \\1 ",orderby," \\2"),nquery,ignore.case=TRUE)	
+	monet.frame(conn,nquery,.is.debug(x),nrow.hint=nrow(x),ncol.hint=ncol(x),cnames.hint=names(x),rtypes.hint=rTypes(x))
 }
 
 quantile.monet.frame <-  function(x, probs = seq(0, 1, 0.25), na.rm = FALSE,
