@@ -47,7 +47,7 @@ stopifnot(identical(round(mean(plaindata$sepal_length),2),round(mean(frame$sepal
 stopifnot(identical(signif(plaindata$sepal_length*1000,2),as.vector(signif(frame$sepal_length * 1000,2))))
 
 # subset
-#stopifnot(identical(subset(plaindata,sepal_width > 3 & species == "setosa"),subset(frame,sepal_width > 3 & species == "setosa")))
+stopifnot(identical(subset(plaindata,sepal_width > 3 & species == "setosa"),subset(frame,sepal_width > 3 & species == "setosa")))
 
 dbDisconnect(con)
 print("SUCCESS")

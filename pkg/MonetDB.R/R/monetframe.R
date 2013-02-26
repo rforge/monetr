@@ -1,12 +1,8 @@
 # this wraps a sql database (in particular MonetDB) with a DBI connector 
 # to have it appear like a data.frame
 
-# show each step of rewriting the query
-DEBUG_REWRITE   <- FALSE
-
-
 # can either be given a query or simply a table name
-monet.frame <- monetframe <- function(conn,tableOrQuery) {
+monet.frame <- monetframe <- function(conn,tableOrQuery,debug=FALSE) {
 	if(missing(conn)) stop("'conn' must be specified")
 	if(missing(tableOrQuery)) stop("a sql query or a table name must be specified")
 	
@@ -18,23 +14,45 @@ monet.frame <- monetframe <- function(conn,tableOrQuery) {
 	if (dbExistsTable(conn,tableOrQuery)) {
 		query <- paste0("SELECT * FROM ",make.db.names(conn,tableOrQuery,allow.keywords=FALSE))
 	}
+	
+	# strip away things the prepare does not like
+	coltestquery <- gsub("SELECT (.*?) FROM (.*?) (ORDER|LIMIT|OFFSET).*","SELECT \\1 FROM \\2",query,ignore.case=TRUE)
+
 	# get column names and types from prepare response
-	res <- dbGetQuery(conn, paste0("PREPARE ",query))
+	res <- dbGetQuery(conn, paste0("PREPARE ",coltestquery))
 	
 	attr(obj,"query") <- query
+	attr(obj,"debug") <- debug
 	attr(obj,"ctypes") <- res$type
 	attr(obj,"cnames") <- res$column
 	attr(obj,"ncol") <- length(res$column)
 	attr(obj,"rtypes") <- lapply(res$type,monetdbRtype)
 	
 	# get result set length by rewriting to count(*), should be much faster
-	attr(obj,"nrow") <- dbGetQuery(conn,sub("(SELECT )(.*?)( FROM.*)","\\1COUNT(*)\\3",query,ignore.case=TRUE))[[1,1]]
+	# temporarily remove offset/limit, as this screws up counting
+	counttestquery <- sub("(SELECT )(.*?)( FROM.*)","\\1COUNT(*)\\3",coltestquery,ignore.case=TRUE)
+	nrow <- dbGetQuery(conn,counttestquery)[[1,1]] - .getOffset(query)
+
+	limit <- .getLimit(query)
+	if (limit > 0) nrow <- min(nrow,limit)
+	if (nrow < 1) 
+		stop(query, " has zero-row result set. Meh.")
+	
+	attr(obj,"nrow") <- nrow
 	return(obj)
+}
+
+set.debug <- function(x,debug,...){
+	attr(x,"debug") <- debug
+}
+
+.is.debug <- function(x) {
+	attr(x,"debug")
 }
 
 .element.limit <- 10000000
 
-as.data.frame.monet.frame <- function(x, row.names, optional, warnSize=TRUE,...) {
+as.data.frame.monet.frame <- adf <- function(x, row.names, optional, warnSize=TRUE,...) {
 	# check if amount of tuples/fields is larger than some limit
 	# raise error if over limit and warnSize==TRUE
 	if (ncol(x)*nrow(x) > .element.limit && warnSize) 
@@ -43,7 +61,7 @@ as.data.frame.monet.frame <- function(x, row.names, optional, warnSize=TRUE,...)
 	return(dbGetQuery(attr(x,"conn"),attr(x,"query")))
 }
 
-as.vector.monet.frame <- function(x,...) {
+as.vector.monet.frame <- av <- function(x,...) {
 	if (ncol(x) != 1)
 		stop("as.vector can only be used on one-column monet.frame objects. Consider using $.")
 	as.data.frame(x)[[1]]
@@ -91,15 +109,7 @@ as.vector.monet.frame <- function(x,...) {
 			# find out whether we already have limit and/or offset set
 			# our values are relative to them
 	
-			oldLimit <- 0
-			oldOffset <- 0
-			
-			oldOffsetStr <- gsub("(.*offset[ ]+)(\\d+)(.*)","\\2",nquery,ignore.case=TRUE)
-			if (oldOffsetStr != nquery) {
-				oldOffset <- as.numeric(oldOffsetStr)
-			}
-			
-			offset <- oldOffset + min(rows)-1 # offset means skip n rows, but r lower limit includes them
+			offset <- .getOffset(nquery) + min(rows)-1 # offset means skip n rows, but r lower limit includes them
 			limit <- max(rows)-min(rows)+1
 
 			# remove old limit/offset from query
@@ -118,9 +128,27 @@ as.vector.monet.frame <- function(x,...) {
 	
 	# construct and return new monet.frame for rewritten query
 
-	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
+	if (.is.debug(x))  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
 
-	monet.frame(attr(x,"conn"),nquery)
+	monet.frame(attr(x,"conn"),nquery,.is.debug(x))
+}
+
+.getOffset <- function(query) {
+	os <- 0
+	osStr <- gsub("(.*offset[ ]+)(\\d+)(.*)","\\2",query,ignore.case=TRUE)
+	if (osStr != query) {
+		os <- as.numeric(osStr)
+	}
+	os
+}
+
+.getLimit <- function(query) {
+	l <- 0
+	lStr <- gsub("(.*limit[ ]+)(\\d+)(.*)","\\2",query,ignore.case=TRUE)
+	if (lStr != query) {
+		l <- as.numeric(lStr)
+	}
+	l
 }
 
 .is.sequential <- function(x, eps=1e-8) {
@@ -137,14 +165,11 @@ as.vector.monet.frame <- function(x,...) {
 }
 
 # returns a single row with one index/element with two indices
-"[[.monet.frame"  <- function(x, j, ...) {
-	print("[[.monet.frame - Not implemented yet.")
-	FALSE
+"[[.monet.frame"  <- function(x, k, j, ...) {
+	x[k,j,drop=FALSE,...][[1]]
 }
 
-
-
-str.monet.frame <- summary.monet.frame <- function(object, ...) {
+str.monet.frame <- function(object, ...) {
 	cat("MonetDB-backed data.frame surrogate\n")
 	# i agree this is overkill, but still...
 	nrows <- nrow(object)
@@ -156,12 +181,65 @@ str.monet.frame <- summary.monet.frame <- function(object, ...) {
 	cat(paste0(ncol(object)," ",colsdesc,", ",nrow(object)," ",rowsdesc,"\n"))
 	
 	cat(paste0("Query: ",getQuery(object),"\n"))	
-	str(as.data.frame(object[1:6,,drop=FALSE]))
+	cat(paste0("Columns: ",paste0(names(object)," (",attr(object,"rtypes"),")",collapse=", "),"\n"))	
 }
 
-# TODO: do something more clever here?
+.colsummary <- function (object, ..., digits = max(3, getOption("digits") - 3)) {
+	
+	
+}
+
+# TODO: ask thomas how to do this nicer..
+.filter.na <- function(x){
+	# UAAAAAAH
+	notna<-parse(text=paste("!is.na(",names(x)[[1]],")"))[[1]]
+	nncol <- do.call(subset, list(x, notna))
+	nncol
+}
+
+# chop up frame into list of single columns. surely, that can be done more clever
+as.list.monet.frame <- function(x,...) {
+	cols <- list()
+	for (col in seq.int(ncol(x))) {
+		cols <- c(cols,x[,col,drop=FALSE])
+	}
+	cols
+}
+
+# adapted from summary.default
+summary.monet.frame <- function (object, maxsum = 7, digits = max(3, getOption("digits") - 3), ...){
+
+	# call data.frame summary code. here, we summarize only single columns.
+	if (ncol(object) > 1) {
+		cat("Calculating summaries. This may take a while.\n")
+		return(summary.data.frame(object))
+	}
+	col <- object
+	nncol <- .filter.na(col)
+	nas <- nrow(col) - nrow(nncol)
+	
+	doneSth <- FALSE
+	value <- if (attr(col,"rtypes")[[1]] == "numeric") {
+		qq <- quantile(nncol,printDots=FALSE)
+		qq <- signif(c(qq[1L:3L], mean(nncol), qq[4L:5L]), digits)
+		names(qq) <- c("Min.", "1st Qu.", "Median", "Mean", "3rd Qu.", 
+				"Max.")
+		
+		if (nas > 0) qq <- c(qq, `NA's` = nas)
+		qq
+	}
+	else {
+		qq <- c(Column = names(col)[[1]],Length = nrow(col), Class = attr(col,"rtypes")[[1]], Mode = attr(col,"rtypes")[[1]])
+		if (nas > 0) qq <- c(qq, `NA's` = nas)
+		qq
+	}
+	class(value) <- c("summary.monet.frame", "table")
+	value
+}
+
+
 print.monet.frame <- function(x, ...) {
-	print(as.data.frame(x))
+	print(adf(x))
 }
 
 names.monet.frame <- function(x) {
@@ -172,25 +250,28 @@ dim.monet.frame <- function(x) {
 	c(attr(x,"nrow"),attr(x,"ncol"))
 }
 
+length.monet.frame <- function(x) {
+	ncol(x)
+}
+
 # TODO: fix issue with constant values, subset(x,foo > "bar")
 
 # http://stat.ethz.ch/R-manual/R-patched/library/base/html/subset.html
-subset.monet.frame<-function(x,subset,...){
+subset.monet.frame<-function(x,ssdef,...){
 	query <- getQuery(x)
-	subset<-substitute(subset)
-	restr <- sqlexpr(subset)
-
-	if (length(grep(" where ",query,ignore.case=TRUE)) > 0) {
-		nquery <- sub("where (.*?) (group|having|order|limit|;)",paste0("where \\1 AND ",restr," \\2"),query,ignore.case=TRUE)
+	ssdef<-substitute(ssdef)
+	restr <- sqlexpr(ssdef)
+	if (length(grep(" WHERE ",query,ignore.case=TRUE)) > 0) {
+		nquery <- sub("WHERE (.*?) (GROUP|HAVING|ORDER|LIMIT|OFFSET|;)",paste0("WHERE \\1 AND ",restr," \\2"),query,ignore.case=TRUE)
 	}
 	else {
-		nquery <- sub("(group|having|order|limit|;|$)",paste0(" where ",restr," \\1"),query,ignore.case=TRUE)
+		nquery <- sub("(GROUP|HAVING|ORDER[ ]+BY|LIMIT|OFFSET|;|$)",paste0(" WHERE ",restr," \\1"),query,ignore.case=TRUE)
 	}
 
-	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
+	if (.is.debug(x))  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
 	
 	# construct and return new monet.frame for rewritten query
-	monet.frame(attr(x,"conn"),nquery)	
+	monet.frame(attr(x,"conn"),nquery,.is.debug(x))	
 }
 
 # basic math and comparision operators
@@ -217,7 +298,7 @@ Ops.monet.frame <- function(e1,e2) {
 		
 		lquery <- query <- getQuery(e1)
 		conn <- attr(e1,"conn")
-		
+		isdebug <- .is.debug(e1) || .is.debug(e2)
 		rquery <- getQuery(e2)
 		
 		left <- sub("(select )(.*?)( from.*)","(\\2)",lquery,ignore.case=TRUE)
@@ -245,6 +326,7 @@ Ops.monet.frame <- function(e1,e2) {
 		if (length(e2) != 1)
 			stop("Only single-value constants are supported.")
 		query <- getQuery(e1)
+		isdebug <- .is.debug(e1)
 		conn <- attr(e1,"conn")
 				
 		left <- sub("(select )(.*?)( from.*)","(\\2)",query,ignore.case=TRUE)
@@ -268,6 +350,7 @@ Ops.monet.frame <- function(e1,e2) {
 		right <- sub("(select )(.*?)( from.*)","(\\2)",query,ignore.case=TRUE)
 		
 		conn <- attr(e2,"conn")
+		isdebug <- .is.debug(e2)
 		
 		rightNum <- attr(e2,"rtypes")[[1]] == "numeric"
 		rightBool <- attr(e2,"rtypes")[[1]] == "logical"
@@ -276,9 +359,7 @@ Ops.monet.frame <- function(e1,e2) {
 		leftNum <- is.numeric(e1)
 		leftBool <- is.logical(e1)
 	}
-	
-	if (DEBUG_REWRITE)  cat(paste0("OP: ",.Generic," on ",left,", ",right,"\n",sep=""))	
-	
+		
 	# mapping of R operators to DB operators...booring		
 	if (.Generic %in% c("+", "-", "*", "/","<",">","<=",">=")) {
 		if (!leftNum || !rightNum)
@@ -334,10 +415,10 @@ Ops.monet.frame <- function(e1,e2) {
 	# replace the thing between SELECT and WHERE with the new value and return new monet.frame
 	nquery <- sub("select (.*?) from",paste0("SELECT ",nexpr," FROM"),query,ignore.case=TRUE)
 		
-	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
+	if (isdebug)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
 	
 	# construct and return new monet.frame for rewritten query
-	monet.frame(conn,nquery)	
+	monet.frame(conn,nquery,isdebug)	
 }
 
 # works: min/max/sum/range
@@ -347,7 +428,7 @@ Summary.monet.frame <- function(x,na.rm=FALSE,...) {
 }
 
 mean.monet.frame <- avg.monet.frame <- function(x,...) {
-	as.data.frame(.col.func(x,"avg"))
+	as.data.frame(.col.func(x,"avg"))[[1,1]]
 }
 
 .col.func <- function(x,func,extraarg=""){
@@ -360,7 +441,7 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	query <- getQuery(x)
 	col <- sub("(select )(.*?)( from.*)","\\2",query,ignore.case=TRUE)
 	
-	if (DEBUG_REWRITE)  cat(paste0("OP: ",func," on ",col,"\n",sep=""))	
+	if (.is.debug(x))  cat(paste0("OP: ",func," on ",col,"\n",sep=""))	
 	
 	conn <- attr(x,"conn")
 	nexpr <- NA
@@ -390,10 +471,92 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	
 	# clear previous result set to free db resources waiting for fetch()
 	
-	if (DEBUG_REWRITE)  cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
+	if (.is.debug(x)) cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
 	
 	# construct and return new monet.frame for rewritten query
+	monet.frame(conn,nquery,.is.debug(x))
+}
+
+
+var.monet.frame <- function(x,...,na.rm=FALSE) {
+	if (ncol(x) != 1) 
+		stop("var() only defined for one-column frames, consider using $ first.")
+	if (na.rm) x <- .filter.na(x) 
+	
+	mean((x-mean(x))^2)
+}
+
+sd.monet.frame <- function(x, ...,na.rm=FALSE) {
+	if (ncol(x) != 1) 
+		stop("var() only defined for one-column frames, consider using $ first.")
+	if (na.rm) x <- .filter.na(x) 
+	sqrt(var(.filter.na(x)))
+}
+
+# overwrite non-generic functions sd and var
+sd.default <- sd
+sd <- function(x, na.rm) {
+	UseMethod("sd")
+}
+
+var.default <- var
+var <- function(x, y, na.rm, use) { 
+	UseMethod("var") 
+}
+
+head.monet.frame <- function (x, n = 6L, ...) {
+	adf(x[1:min(nrow(x),n),])
+}
+
+tail.monet.frame <- function (x, n = 6L, ...) {
+	adf(x[max(nrow(x)-n+1,1):nrow(x),])
+}
+
+sort.monet.frame <- function (x, decreasing = FALSE, ...) {
+	if (ncol(x) != 1) 
+		stop("sort() only defined for one-column frames, consider using $ first.")
+	# TODO: implement ORDER BY. remove previous if required.
+	
+	# sort by given column, either add ORDER BY x [DESC] at end of query or before LIMIT/OFFSET
+	query <- getQuery(x)
+	conn <- attr(x,"conn")
+	
+	# remove any old ORDER BY
+	nquery <- sub("(SELECT .*? FROM .*?) (ORDER[ ]+BY[ ]+.*?) (LIMIT|OFFSET|;)(.*)","\\1 \\3 \\4",query,ignore.case=TRUE)
+	
+	# construct new
+	orderby <- paste0("ORDER BY ",names(x)[[1]]) # TODO: make.db.names?
+	if (decreasing) orderby <- paste0(orderby," DESC")
+	
+	nquery <- sub("SELECT (.*?) (LIMIT|OFFSET|;)",paste0("SELECT \\1 ",orderby," \\2"),nquery,ignore.case=TRUE)
+	if (.is.debug(x)) cat(paste0("RW: '",query,"' >> '",nquery,"'\n",sep=""))	
+	
 	monet.frame(conn,nquery)
+}
+
+quantile.monet.frame <-  function(x, probs = seq(0, 1, 0.25), na.rm = FALSE,
+		names = TRUE, type = 7, printDots=FALSE, ...) {
+	if (ncol(x) != 1) 
+		stop("quantile() only defined for one-column frames, consider using $ first.")
+	isNum <- attr(x,"rtypes")[[1]] == "numeric"
+	if (!isNum)
+		stop("quantile() is only defined for numeric columns.")
+	n <- nrow(x)
+	ret <- c()
+	for (i in 1:length(probs)) {
+		if (printDots) cat(".")
+		index <- ceiling(probs[i]*n)+1
+		if (index > n) index <- n
+		y <- sort(x[index,1,drop=FALSE])
+		ret <- c(ret,as.vector(y)[[1]])
+	}
+	if (names) names(ret) <- paste0(as.integer(probs*100),"%")
+	ret
+}
+
+
+median.monet.frame <- function (x, na.rm = FALSE) {
+	quantile(x,0.5,na.rm=na.rm,names=FALSE)	
 }
 
 
@@ -423,7 +586,7 @@ Math.monet.frame <- function(x,digits=0,...) {
 }
 
 # 'borrowed' from sqlsurvey, translates a subset() argument to sqlish
-sqlexpr<-function(expr, design){
+sqlexpr<-function(expr){
 	nms<-new.env(parent=emptyenv())
 	assign("%in%"," IN ", nms)
 	assign("&", " AND ", nms)

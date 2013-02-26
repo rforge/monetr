@@ -10,12 +10,14 @@
   \code{monet.frame} wraps a MonetDB table or query result and behaves like a R \code{\link[base]{data.frame}}. 
 }
 \usage{
-  monet.frame( conn, tableOrQuery )
+  monet.frame( conn, tableOrQuery, debug=FALSE )
 }
 \arguments{
   \item{conn}{A MonetDB.R database connection. Created using \code{\link[DBI]{dbConnect}} with the 
   \code{\link[MonetDB.R]{MonetDB.R}} database driver.}
   \item{tableOrQuery}{A string either naming a database table or a SQL query as a basis for the new object.}
+  \item{debug}{Logical value indicating whether the SQL queries being rewritten in the background are printed or not.}
+
  }
 \value{
   Returns a \code{monet.frame} virtual data object that behaves similar to a \code{\link[base]{data.frame}}.

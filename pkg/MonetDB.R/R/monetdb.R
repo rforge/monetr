@@ -2,7 +2,7 @@ require(DBI)
 require(bitops)
 require(digest)
 
-# TODO: make these values configuratble in the call to dbConnect
+# TODO: make these values configurable in the call to dbConnect
 DEBUG_IO      <- FALSE
 DEBUG_QUERY   <- FALSE
 
@@ -601,7 +601,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 		}
 	
 		if (typeKey == Q_TRANSACTION) {
-			print("Handling Q_TRANSACTION is NOT IMPLEMENTED YET")
+			stop("Handling Q_TRANSACTION is NOT IMPLEMENTED YET")
 		}
 		
 	}
