@@ -20,8 +20,10 @@ monet.frame <- monetframe <- function(conn,tableOrQuery,debug=FALSE,rtypes.hint=
 	attr(obj,"debug") <- debug
 	
 	if (debug) cat(paste0("QQ: '",query,"'\n",sep=""))	
+	# do this here, in case the nrow thing needs it
+	coltestquery <- gsub("SELECT (.*?) FROM (.*?) (ORDER|LIMIT|OFFSET).*","SELECT \\1 FROM \\2",query,ignore.case=TRUE)
 	
-	if (!is.na(nrow.hint) && !is.na(cnames.hint) && !is.na(ncol.hint) && !is.na(rtypes.hint)) {
+	if (!is.na(cnames.hint) && !is.na(ncol.hint) && !is.na(rtypes.hint)) {
 		attr(obj,"cnames") <- cnames.hint
 		attr(obj,"ncol") <- ncol.hint
 		attr(obj,"rtypes") <- rtypes.hint
@@ -293,7 +295,7 @@ subset.monet.frame<-function(x,ssdef,...){
 	}
 	
 	# construct and return new monet.frame for rewritten query
-	monet.frame(attr(x,"conn"),nquery,.is.debug(x),ncol.hint=NA, cnames.hint=names(x), rtypes.hint=rTypes(x))	
+	monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
 }
 
 rTypes <- function(x) {
@@ -463,14 +465,14 @@ Ops.monet.frame <- function(e1,e2) {
 # works: min/max/sum/range
 # TODO: implement  ‘all’, ‘any’, ‘prod’ (product)
 Summary.monet.frame <- function(x,na.rm=FALSE,...) {
-	adf(.col.func(x,.Generic))[[1,1]]
+	adf(.col.func(x,.Generic,aggregate=TRUE))[[1,1]]
 }
 
 mean.monet.frame <- avg.monet.frame <- function(x,...) {
-	adf(.col.func(x,"avg"))[[1,1]]
+	adf(.col.func(x,"avg",aggregate=TRUE))[[1,1]]
 }
 
-.col.func <- function(x,func,extraarg=""){
+.col.func <- function(x,func,extraarg="",aggregate=FALSE){
 	if (ncol(x) != 1) 
 		stop(func, " only defined for one-column frames, consider using $ first.")
 	
@@ -510,7 +512,11 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	cnames.hint <- c(paste0(func,"_result"))
 	rtypes.hint <- c("numeric")
 	
-	monet.frame(conn,nquery,.is.debug(x),ncol.hint=1,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)
+	nrow.hint <- NA
+	if (aggregate) nrow.hint <- 1
+	
+	
+	monet.frame(conn,nquery,.is.debug(x),ncol.hint=1,nrow.hint=nrow.hint,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)
 }
 
 
