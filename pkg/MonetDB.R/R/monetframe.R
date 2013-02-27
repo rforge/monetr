@@ -333,7 +333,7 @@ aggregate.monet.frame <- function(x, by, FUN, ..., simplify = TRUE) {
 	grouping <- paste0(paste0(by,collapse=", "))
 	projection <- paste0(grouping,", ",paste0(toupper(fname),"(",aggrcols,")",collapse=", "))
 	
-	cnames.hint <- c(paste(by),paste(toupper(fname),"_",aggrcols))
+	cnames.hint <- c(paste(by),paste0(toupper(fname),"_",aggrcols))
 	ncol.hint <- length(cnames.hint)
 	
 	rtypes.hint <- c(rTypes(x)[match(by,names(x))],aggrtypes)
