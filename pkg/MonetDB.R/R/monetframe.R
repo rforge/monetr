@@ -215,12 +215,9 @@ str.monet.frame <- function(object, ...) {
 }
 
 
-# TODO: ask thomas how to do this nicer..
 .filter.na <- function(x){
-	# UAAAAAAH
-	notna<-parse(text=paste("!is.na(",names(x)[[1]],")"))[[1]]
-	nncol <- do.call(subset, list(x, notna))
-	nncol
+	filter <- bquote( !is.na(.(names(x)[[1]])) )
+	do.call(subset, list(x, filter))
 }
 
 # chop up frame into list of single columns. surely, that can be done more clever
@@ -519,32 +516,27 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	monet.frame(conn,nquery,.is.debug(x),ncol.hint=1,nrow.hint=nrow.hint,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)
 }
 
-
-var.monet.frame <- function(x,...,na.rm=FALSE) {
+sd.monet.frame <- function(x, na.rm = FALSE) {
 	if (ncol(x) != 1) 
 		stop("var() only defined for one-column frames, consider using $ first.")
 	if (na.rm) x <- .filter.na(x) 
-	
+	sqrt(var(x))
+}
+
+var.monet.frame <- function (x, y = NULL, na.rm = FALSE, use) {
+	if (ncol(x) != 1) 
+		stop("var() only defined for one-column frames, consider using $ first.")
+	if (na.rm) x <- .filter.na(x) 
 	mean((x-mean(x))^2)
 }
 
-sd.monet.frame <- function(x, ...,na.rm=FALSE) {
-	if (ncol(x) != 1) 
-		stop("var() only defined for one-column frames, consider using $ first.")
-	if (na.rm) x <- .filter.na(x) 
-	sqrt(var(.filter.na(x)))
-}
-
 # overwrite non-generic functions sd and var
-sd.default <- sd
-sd <- function(x, na.rm) {
-	UseMethod("sd")
-}
+sd.default <- stats::sd
+sd <- function(x, na.rm = FALSE) UseMethod("sd")
 
-var.default <- var
-var <- function(x, y, na.rm, use) { 
-	UseMethod("var") 
-}
+var.default <- stats::var
+var <- function (x, y = NULL, na.rm = FALSE, use)  UseMethod("var")
+
 
 head.monet.frame <- function (x, n = 6L, ...) {
 	adf(x[1:min(nrow(x),n),])
@@ -562,7 +554,7 @@ sort.monet.frame <- function (x, decreasing = FALSE, ...) {
 	# sort by given column, either add ORDER BY x [DESC] at end of query or before LIMIT/OFFSET
 	query <- getQuery(x)
 	conn <- attr(x,"conn")
-	
+		
 	# remove any old ORDER BY
 	nquery <- sub("(SELECT .*? FROM .*?) (ORDER[ ]+BY[ ]+.*?) (LIMIT|OFFSET|;)(.*)","\\1 \\3 \\4",query,ignore.case=TRUE)
 	
@@ -570,7 +562,7 @@ sort.monet.frame <- function (x, decreasing = FALSE, ...) {
 	orderby <- paste0("ORDER BY ",names(x)[[1]]) # TODO: make.db.names?
 	if (decreasing) orderby <- paste0(orderby," DESC")
 	
-	nquery <- sub("SELECT (.*?) (LIMIT|OFFSET|;)",paste0("SELECT \\1 ",orderby," \\2"),nquery,ignore.case=TRUE)	
+	nquery <- sub("SELECT (.*)(LIMIT|OFFSET|;|$)",paste0("SELECT \\1 ",orderby," \\2"),nquery,ignore.case=TRUE)	
 	monet.frame(conn,nquery,.is.debug(x),nrow.hint=nrow(x),ncol.hint=ncol(x),cnames.hint=names(x),rtypes.hint=rTypes(x))
 }
 
@@ -581,13 +573,14 @@ quantile.monet.frame <-  function(x, probs = seq(0, 1, 0.25), na.rm = FALSE,
 	isNum <- attr(x,"rtypes")[[1]] == "numeric"
 	if (!isNum)
 		stop("quantile() is only defined for numeric columns.")
+	if (na.rm) x <- .filter.na(x)
 	n <- nrow(x)
 	ret <- c()
 	for (i in 1:length(probs)) {
 		if (printDots) cat(".")
 		index <- ceiling(probs[i]*n)+1
 		if (index > n) index <- n
-		y <- sort(x[index,1,drop=FALSE])
+		y <- sort(x)[index,1,drop=FALSE]
 		ret <- c(ret,as.vector(y)[[1]])
 	}
 	if (names) names(ret) <- paste0(as.integer(probs*100),"%")
@@ -596,7 +589,7 @@ quantile.monet.frame <-  function(x, probs = seq(0, 1, 0.25), na.rm = FALSE,
 
 
 median.monet.frame <- function (x, na.rm = FALSE) {
-	quantile(x,0.5,na.rm=na.rm,names=FALSE)	
+	quantile(x,0.5,na.rm=na.rm,names=FALSE)[[1]]	
 }
 
 

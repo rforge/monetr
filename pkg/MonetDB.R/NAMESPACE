@@ -35,24 +35,19 @@ S3method(mean,monet.frame)
 S3method(var,monet.frame)
 S3method(sort,monet.frame)
 S3method(quantile,monet.frame)
-
-export(median)
+S3method(median,monet.frame)
 
 export(set.debug)
-export(var)
-export(var.default)
+
+
+# non-generic stuff..
+S3method(sd, monet.frame)
+S3method(sd, default)
 export(sd)
-export(sd.default)
 
-
-
-
-
-
-
-
-
-
+S3method(var, monet.frame)
+S3method(var, default)
+export(var)
 
 
 
