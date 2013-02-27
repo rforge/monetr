@@ -1,6 +1,13 @@
 # this wraps a sql database (in particular MonetDB) with a DBI connector 
 # to have it appear like a data.frame
 
+# shorthand constructor, also creates connection to db
+mf <- function(database,table,host="localhost",port=50000,user="monetdb",pass="monetdb",debug=FALSE,timeout=100) {
+	dburl <- paste0("monetdb://",host,":",port,"/",database)	
+	con <- dbConnect(MonetDB.R(), dburl,user,pass,timeout=timeout)
+	monet.frame(con,table,debug)
+}
+
 # can either be given a query or simply a table name
 # now supports hints on table structure to speed up initialization
 monet.frame <- monetframe <- function(conn,tableOrQuery,debug=FALSE,rtypes.hint=NA,cnames.hint=NA,ncol.hint=NA,nrow.hint=NA) {
@@ -295,8 +302,51 @@ subset.monet.frame<-function(x,ssdef,...){
 	monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
 }
 
-rTypes <- function(x) {
-	attr(x,"rtypes")
+
+
+aggregate.monet.frame <- function(x, by, FUN, ..., simplify = TRUE) {
+	fname <- tolower(substitute(FUN))
+	
+	if (fname == "mean") fname <- "avg"
+	
+	if (!(fname %in% c("min","max","avg","sum","count")))
+		stop(fname," not supported for aggregate(). Sorry.")
+	
+	if (length(by) ==0)
+		stop("I need at least one column to aggregate on (by=...).")
+	
+	if (simplify)
+		warning("simplify=TRUE is not supported. Overriding to FALSE.")
+	
+	if (!all(by %in% names(x)))
+		stop(paste0("Invalid aggregation column '",paste(by,collapse=", "),"'. Column names have to be in set {",paste(names(x),collapse=", "),"}.",sep=""))			
+	
+	aggrcols <- names(x)[!(names(x) %in% by)]
+	aggrtypes <- rTypes(x)[!(names(x) %in% by)]
+	
+	if (length(aggrcols) ==0)
+		stop("I need at least one column to aggregate.")
+	
+	if (!(all(aggrtypes=="numeric")))
+		stop("Aggregated columns have all to be numeric.",)
+	
+	grouping <- paste0(paste0(by,collapse=", "))
+	projection <- paste0(grouping,", ",paste0(toupper(fname),"(",aggrcols,")",collapse=", "))
+	
+	cnames.hint <- c(paste(by),paste(toupper(fname),"_",aggrcols))
+	ncol.hint <- length(cnames.hint)
+	
+	rtypes.hint <- c(rTypes(x)[match(by,names(x))],aggrtypes)
+	
+	# part 0: remove grouping that was there before?
+	# TODO (?)
+	
+	# part 1: project
+	nquery <- sub("SELECT.+FROM",paste0("SELECT ",projection," FROM"),getQuery(x),ignore.case=TRUE)
+	# part2: group by, directly after where, before having/orderby/limit/offset
+	nquery <- gsub("(SELECT.*?)(HAVING|ORDER[ ]+BY|LIMIT|OFFSET|;|$)",paste0("\\1 GROUP BY ",grouping," \\2"),nquery,ignore.case=TRUE)
+	
+	monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA, ncol.hint=ncol.hint,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)	
 }
 
 # basic math and comparision operators
@@ -673,6 +723,10 @@ sqlexpr<-function(expr){
 
 getQuery <- function(x) {
 	attr(x,"query")
+}
+
+rTypes <- function(x) {
+	attr(x,"rtypes")
 }
 
 `[<-.monet.frame` <- `dim<-.monet.frame` <- `dimnames<-.monet.frame` <- `names<-.monet.frame` <- function(x, j, k, ..., value) {

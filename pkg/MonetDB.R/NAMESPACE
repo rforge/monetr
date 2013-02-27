@@ -10,6 +10,8 @@ export(monetdbRtype)
 
 # monet.frame things, this is an S3 class
 export(monet.frame)
+export(mf)
+
 S3method(as.list,monet.frame)
 S3method(as.data.frame,monet.frame)
 S3method(as.vector,monet.frame)
@@ -36,6 +38,7 @@ S3method(var,monet.frame)
 S3method(sort,monet.frame)
 S3method(quantile,monet.frame)
 S3method(median,monet.frame)
+S3method(aggregate,monet.frame)
 
 export(set.debug)
 
