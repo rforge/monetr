@@ -19,7 +19,7 @@
   \code{\link[DBI]{dbConnect}}.
 }
 \details{
-  The \code{RMonetDB} function creates the R object which can be used to a
+  The \code{MonetDB.R} function creates the R object which can be used to a
   call \code{\link[DBI]{dbConnect}} which actually creates the connection. 
   Since it has no parameters, it is most commonly used inline with the \code{\link[DBI]{dbConnect}} call.
  
