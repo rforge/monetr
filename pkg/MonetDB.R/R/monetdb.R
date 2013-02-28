@@ -25,7 +25,7 @@ setMethod("dbGetInfo", "MonetDBDriver", def=function(dbObj, ...)
 					max.connections=NA)
 )
 
-setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", password="monetdb",timeout=1000, ...) {
+setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", password="monetdb",timeout=86400, ...) {
 	if (substring(url,1,10) != "monetdb://") {
 		stop(paste("Only monetdb:// DBs supported."))
 	}	

@@ -1,3 +1,6 @@
+0.5.9
+- Increased default socket timeout to 24h. Rationale: Import jobs may take this long, and all operations can always be cancelled with CTRL-C
+
 0.5.8
 - aggregate() support in DB
 
