@@ -222,9 +222,20 @@ str.monet.frame <- function(object, ...) {
 }
 
 
-.filter.na <- function(x){
-	filter <- bquote( !is.na(.(names(x)[[1]])) )
-	do.call(subset, list(x, filter))
+na.omit.monet.frame <- .filter.na  <- function(object,...){
+	if (ncol(object) != 1) 
+		stop("na.omit() only defined for one-column frames, consider using $ first")
+	filter <- bquote( !is.na(.(names(object)[[1]])) )
+	do.call(subset, list(object, filter))
+}
+
+na.fail.monet.frame <- function(object,...) {
+	if (ncol(object) != 1) 
+		stop("na.fail() only defined for one-column frames, consider using $ first")
+	filter <- bquote( is.na(.(names(object)[[1]])) )
+	object <- do.call(subset, list(object, filter))
+	if (nrow(object) > 0)
+		stop("NA/NULL values found in column '",names(object),"'. Failing as requested.")
 }
 
 # chop up frame into list of single columns. surely, that can be done more clever
@@ -239,7 +250,9 @@ as.list.monet.frame <- function(x,...) {
 # adapted from summary.default
 summary.monet.frame <- function (object, maxsum = 7, digits = max(3, getOption("digits") - 3), ...){
 
-	# call data.frame summary code. here, we summarize only single columns.
+	# call data.frame summary code. here, we summarize only single columns. sumamry.data.frame will 
+	# call as.list and then summary on columns, which will bring us right back here.
+	
 	if (ncol(object) > 1) {
 		cat("Calculating summaries. This may take a while.\n")
 		return(summary.data.frame(object))
@@ -301,7 +314,15 @@ subset.monet.frame<-function(x,ssdef,...){
 	# construct and return new monet.frame for rewritten query
 	monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
 }
-
+#
+#rowsum.monet.frame <- function (x, group, reorder = TRUE, na.rm = FALSE, ...) {
+#	if (na.rm) x <- .filter.na(x)
+#	aggregate(x,group,"sum")
+#	#TODO: group has to be a column, so either a set of strings or monet.frame, where the columns will be used to group
+#	
+#	
+#	
+#} 
 
 
 aggregate.monet.frame <- function(x, by, FUN, ..., simplify = TRUE) {
@@ -512,6 +533,7 @@ Ops.monet.frame <- function(e1,e2) {
 # works: min/max/sum/range
 # TODO: implement  ‘all’, ‘any’, ‘prod’ (product)
 Summary.monet.frame <- function(x,na.rm=FALSE,...) {
+	if (na.rm) x <- .filter.na(x)
 	adf(.col.func(x,.Generic,aggregate=TRUE))[[1,1]]
 }
 
@@ -581,10 +603,10 @@ var.monet.frame <- function (x, y = NULL, na.rm = FALSE, use) {
 }
 
 # overwrite non-generic functions sd and var
-sd.default <- stats::sd
+sd.default <- function(x, na.rm = FALSE) stats::sd(x,na.rm)
 sd <- function(x, na.rm = FALSE) UseMethod("sd")
 
-var.default <- stats::var
+var.default <- function(x, y = NULL, na.rm = FALSE, use) stats::var(x, y = NULL, na.rm = FALSE, use)
 var <- function (x, y = NULL, na.rm = FALSE, use)  UseMethod("var")
 
 
@@ -630,6 +652,7 @@ quantile.monet.frame <-  function(x, probs = seq(0, 1, 0.25), na.rm = FALSE,
 		if (printDots) cat(".")
 		index <- ceiling(probs[i]*n)+1
 		if (index > n) index <- n
+		# TODO: if prob = 0.5 use median()?
 		y <- sort(x)[index,1,drop=FALSE]
 		ret <- c(ret,as.vector(y)[[1]])
 	}
@@ -639,6 +662,7 @@ quantile.monet.frame <-  function(x, probs = seq(0, 1, 0.25), na.rm = FALSE,
 
 
 median.monet.frame <- function (x, na.rm = FALSE) {
+	# TODO: use median() here
 	quantile(x,0.5,na.rm=na.rm,names=FALSE)[[1]]	
 }
 
