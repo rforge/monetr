@@ -1,3 +1,6 @@
+0.5.10
+- MonetDB server control code (Windows) from Anthony Damico
+
 0.5.9
 - Increased default socket timeout to 24h. Rationale: Import jobs may take this long, and all operations can always be cancelled with CTRL-C
 
