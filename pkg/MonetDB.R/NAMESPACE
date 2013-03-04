@@ -56,6 +56,10 @@ S3method(var, monet.frame)
 S3method(var, default)
 export(var)
 
+# control.R
+export(monetdb.server.setup)
+export(monetdb.server.start)
+export(monetdb.server.stop)
 
 
 
