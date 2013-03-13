@@ -39,6 +39,8 @@ S3method(sort,monet.frame)
 S3method(quantile,monet.frame)
 S3method(median,monet.frame)
 S3method(aggregate,monet.frame)
+export(aggregatef) # temp!
+
 #S3method(rowsum,monet.frame)
 S3method(na.omit,monet.frame)
 S3method(na.fail,monet.frame)

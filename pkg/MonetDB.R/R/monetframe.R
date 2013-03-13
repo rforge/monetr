@@ -324,52 +324,6 @@ subset.monet.frame<-function(x,ssdef,...){
 #	
 #} 
 
-
-aggregate.monet.frame <- function(x, by, FUN, ..., simplify = TRUE) {
-	fname <- tolower(substitute(FUN))
-	
-	if (fname == "mean") fname <- "avg"
-	
-	if (!(fname %in% c("min","max","avg","sum","count")))
-		stop(fname," not supported for aggregate(). Sorry.")
-	
-	if (length(by) ==0)
-		stop("I need at least one column to aggregate on (by=...).")
-	
-	if (simplify)
-		warning("simplify=TRUE is not supported. Overriding to FALSE.")
-	
-	if (!all(by %in% names(x)))
-		stop(paste0("Invalid aggregation column '",paste(by,collapse=", "),"'. Column names have to be in set {",paste(names(x),collapse=", "),"}.",sep=""))			
-	
-	aggrcols <- names(x)[!(names(x) %in% by)]
-	aggrtypes <- rTypes(x)[!(names(x) %in% by)]
-	
-	if (length(aggrcols) ==0)
-		stop("I need at least one column to aggregate.")
-	
-	if (!(all(aggrtypes=="numeric")) && fname != "count")
-		stop("Aggregated columns have all to be numeric.",)
-	
-	grouping <- paste0(paste0(by,collapse=", "))
-	projection <- paste0(grouping,", ",paste0(toupper(fname),"(",aggrcols,")",collapse=", "))
-	
-	cnames.hint <- c(paste(by),paste0(toupper(fname),"_",aggrcols))
-	ncol.hint <- length(cnames.hint)
-	
-	rtypes.hint <- c(rTypes(x)[match(by,names(x))],aggrtypes)
-	
-	# part 0: remove grouping that was there before?
-	# TODO (?)
-	
-	# part 1: project
-	nquery <- sub("SELECT.+FROM",paste0("SELECT ",projection," FROM"),getQuery(x),ignore.case=TRUE)
-	# part2: group by, directly after where, before having/orderby/limit/offset
-	nquery <- gsub("(SELECT.*?)(HAVING|ORDER[ ]+BY|LIMIT|OFFSET|;|$)",paste0("\\1 GROUP BY ",grouping," \\2"),nquery,ignore.case=TRUE)
-	
-	monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA, ncol.hint=ncol.hint,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)	
-}
-
 # basic math and comparision operators
 #  ‘"+"’, ‘"-"’, ‘"*"’, ‘"/"’, ‘"^"’, ‘"%%"’, `"%/%"’ (only numeric)
 #  ‘"&"’, ‘"|"’, ‘"!"’ (only boolean)
@@ -590,9 +544,9 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 
 sd.monet.frame <- function(x, na.rm = FALSE) {
 	if (ncol(x) != 1) 
-		stop("var() only defined for one-column frames, consider using $ first.")
+		stop("sd() only defined for one-column frames, consider using $ first.")
 	if (na.rm) x <- .filter.na(x) 
-	sqrt(var(x))
+	.col.func(x,"stddev_pop")
 }
 
 var.monet.frame <- function (x, y = NULL, na.rm = FALSE, use) {
@@ -606,17 +560,102 @@ var.monet.frame <- function (x, y = NULL, na.rm = FALSE, use) {
 sd.default <- function(x, na.rm = FALSE) stats::sd(x,na.rm)
 sd <- function(x, na.rm = FALSE) UseMethod("sd")
 
-var.default <- function(x, y = NULL, na.rm = FALSE, use) stats::var(x, y = NULL, na.rm = FALSE, use)
-var <- function (x, y = NULL, na.rm = FALSE, use)  UseMethod("var")
+var.default <- function(x, y = NULL, na.rm = FALSE, use) stats::var(x, y, na.rm, use)
+var <- function (x, y = NULL, na.rm = FALSE, use) UseMethod("var")
+
+# TODO: make this work for normal data.frames, aggregate.formula looks into parent.frame(), how can we simulate that?
+#aggregate.formula <- function (formula, data, FUN, ..., subset, na.action = na.omit) {
+#	if (class(data)[[1]] == "monet.frame") aggregate.monet.frame.formula(formula, data, FUN, ..., subset, na.action)
+#	else 
+#		eval.parent(quote(stats:::aggregate.formula(formula, data, FUN, ..., subset, na.action)),2)
+#}
 
 
-head.monet.frame <- function (x, n = 6L, ...) {
-	adf(x[1:min(nrow(x),n),])
+
+aggregatef <- function(formula, data, FUN, ..., subset, na.action = na.omit){
+	if ( missing(formula) || !inherits(formula, "formula") ) stop("'formula' missing or incorrect")
+	
+	if (length(formula) != 3L) stop("'formula' must have both left and right hand sides")
+	
+	# extract both sides of the formula
+	rhs <- unlist(strsplit(deparse(formula[[3L]]), " *[:+] *"))
+	lhs <- unlist(strsplit(deparse(formula[[2L]]), " *[:+] *"))
+	
+	# if both are dots, it's an error
+	if ( identical( rhs , "." ) & identical( lhs , "." ) ) stop( "both sides cannot be dots ya dot" )
+	
+	# if either side has a length of zero, that's a no-go
+	if ( length( rhs ) == 0 | length( lhs ) == 0 ) stop( "gimme at least one column to aggregate on, and at least one more to aggregate by." )
+	
+	# if one side is a dot, it contains all the columns _not_ on the other side
+	if ( identical( rhs , "." ) ) rhs <- names( data )[ !( names( data ) %in% lhs ) ]
+	if ( identical( lhs , "." ) ) lhs <- names( data )[ !( names( data ) %in% rhs ) ]
+	
+	# and at this point, if not all of those columns are in the monet.frame, it's a no-go
+	if ( !all( rhs %in% names( data ) ) ) stop( rhs[ !( rhs %in% names( data ) ) ] , " not in the monet.frame" )
+	if ( !all( lhs %in% names( data ) ) ) stop( lhs[ !( lhs %in% names( data ) ) ] , " not in the monet.frame" )
+	
+	projection <- c(lhs,rhs)
+	by <- as.list(lhs)
+	fname <- tolower(substitute(FUN))
+	
+	aggregate.monet.frame(data[,projection,drop=FALSE],by,fname,...,simplify=FALSE)
 }
 
-tail.monet.frame <- function (x, n = 6L, ...) {
-	adf(x[max(nrow(x)-n+1,1):nrow(x),])
+
+aggregate.monet.frame <- function(x, by, FUN, ..., simplify = TRUE) {
+	if (!is.character(FUN)) FUN <- tolower(substitute(FUN)) 
+	else fname = tolower(FUN)
+
+	if (fname == "mean") fname <- "avg"
+	if (fname == "sd" ) fname <- "stddev_pop"
+	
+	if (!(fname %in% c("min","max","avg","sum","count","median","stddev")))
+		stop(fname," not supported for aggregate(). Sorry.")
+	
+	if (length(by) ==0)
+		stop("I need at least one column to aggregate on (by=...).")
+	
+	if (simplify)
+		warning("simplify=TRUE is not supported. Overriding to FALSE.")
+	
+	if (!all(by %in% names(x)))
+		stop(paste0("Invalid aggregation column '",paste(by,collapse=", "),"'. Column names have to be in set {",paste(names(x),collapse=", "),"}.",sep=""))			
+	
+	aggrcols <- names(x)[!(names(x) %in% by)]
+	aggrtypes <- rTypes(x)[!(names(x) %in% by)]
+	
+	if (length(aggrcols) ==0)
+		stop("I need at least one column to aggregate.")
+	
+	if (!(all(aggrtypes=="numeric")) && fname != "count")
+		stop("Aggregated columns have all to be numeric.",)
+	
+	grouping <- paste0(paste0(by,"",collapse=", "))
+	projection <- paste0(grouping,", ",paste0(toupper(fname),"(",aggrcols,") AS ",fname,"_",aggrcols,collapse=", "))
+	
+	cnames.hint <- c(paste(by),paste0(fname,"_",aggrcols))
+	ncol.hint <- length(cnames.hint)
+	
+	rtypes.hint <- c(rTypes(x)[match(by,names(x))],aggrtypes)
+	
+	# part 0: remove grouping that was there before?
+	# TODO (?)
+	
+	# part 1: project
+	nquery <- sub("SELECT.+FROM",paste0("SELECT ",projection," FROM"),getQuery(x),ignore.case=TRUE)
+	# part2: group by, directly after where, before having/orderby/limit/offset
+	nquery <- gsub("(SELECT.*?)(HAVING|ORDER[ ]+BY|LIMIT|OFFSET|;|$)",paste0("\\1 GROUP BY ",grouping," \\2"),nquery,ignore.case=TRUE)
+	
+	monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA, ncol.hint=ncol.hint,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)	
 }
+
+
+
+	
+head.monet.frame <- function (x, n = 6L, ...) adf(x[1:min(nrow(x),n),])
+
+tail.monet.frame <- function (x, n = 6L, ...) adf(x[max(nrow(x)-n+1,1):nrow(x),])
 
 sort.monet.frame <- function (x, decreasing = FALSE, ...) {
 	if (ncol(x) != 1) 
