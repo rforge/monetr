@@ -1,3 +1,6 @@
+0.5.11
+- fixed a bug in aggregate() to allow count-aggregation on non-numeric columns
+
 0.5.10
 - MonetDB server control code (Windows) from Anthony Damico
 

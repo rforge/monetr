@@ -348,7 +348,7 @@ aggregate.monet.frame <- function(x, by, FUN, ..., simplify = TRUE) {
 	if (length(aggrcols) ==0)
 		stop("I need at least one column to aggregate.")
 	
-	if (!(all(aggrtypes=="numeric")))
+	if (!(all(aggrtypes=="numeric")) && fname != "count")
 		stop("Aggregated columns have all to be numeric.",)
 	
 	grouping <- paste0(paste0(by,collapse=", "))
