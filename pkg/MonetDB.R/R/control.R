@@ -16,31 +16,39 @@ monetdb.server.start <-
 		# run the process
 		shell.exec( bat.file )
 		
-		# capture the result of a `tasklist` system call
-		after.win.tasklist <- system2( 'tasklist' , stdout = TRUE )
+		# start with an empty process id
+		correct.pid <- character( 0 )
 		
-		# store all tasks after running the process
-		after.tasks <- substr( after.win.tasklist[ -(1:3) ] , 1 , 25 )
-		
-		# store all pids after running the process
-		after.pids <- substr( after.win.tasklist[ -(1:3) ] , 27 , 35 )
-		
-		# store the number in the task list containing the PIDs you've just initiated
-		initiated.pid.positions <- which( !( after.pids %in% before.pids ) )
-		
-		# remove whitespace
-		after.tasks <- gsub( " " , "" , after.tasks )
-		
-		# find the pid position that matches the executable file name
-		correct.pid.position <- 
-				intersect(
-						grep( "mserver" , after.tasks ) ,
-						initiated.pid.positions 
-				)
-		
-		
-		# remove whitespace
-		correct.pid <- gsub( " " , "" , after.pids[ correct.pid.position ] )
+		# keep trying until a new `mserver` process appears
+		while( length( correct.pid ) == 0 ){
+			
+			# capture the result of a `tasklist` system call
+			after.win.tasklist <- system2( 'tasklist' , stdout = TRUE )
+			
+			# store all tasks after running the process
+			after.tasks <- substr( after.win.tasklist[ -(1:3) ] , 1 , 25 )
+			
+			# store all pids after running the process
+			after.pids <- substr( after.win.tasklist[ -(1:3) ] , 27 , 35 )
+			
+			# store the number in the task list containing the PIDs you've just initiated
+			initiated.pid.positions <- which( !( after.pids %in% before.pids ) )
+			
+			# remove whitespace
+			after.tasks <- gsub( " " , "" , after.tasks )
+			
+			# find the pid position that matches the executable file name
+			correct.pid.position <- 
+					intersect(
+							grep( "mserver" , after.tasks ) ,
+							initiated.pid.positions 
+					)
+			
+			
+			# remove whitespace
+			correct.pid <- gsub( " " , "" , after.pids[ correct.pid.position ] )
+			
+		}
 		
 		# return the correct process ID
 		return( correct.pid )
