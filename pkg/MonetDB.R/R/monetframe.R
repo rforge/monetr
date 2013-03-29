@@ -563,6 +563,23 @@ sd <- function(x, na.rm = FALSE) UseMethod("sd")
 var.default <- function(x, y = NULL, na.rm = FALSE, use) stats::var(x, y, na.rm, use)
 var <- function (x, y = NULL, na.rm = FALSE, use) UseMethod("var")
 
+sample.default <- function (x, size, replace = FALSE, prob = NULL) base::sample(x, size, replace, prob)
+sample <- function (x, size, replace = FALSE, prob = NULL) UseMethod("sample")
+
+sample.monet.frame <- function (x, size, replace = FALSE, prob = NULL){
+	if (replace) stop("replace=TRUE not supported on monet.frame objects")
+	if (!missing(prob)) stop("prob parameter not supported on monet.frame objects")
+	if (!is.numeric(size) && length(size) != 1) stop("size parameter needs to be a single constant integer value")
+	
+	query <- nquery <- getQuery(x)
+	# remove old limit/offset
+	nquery <- gsub("limit[ ]+\\d+|offset[ ]+\\d+","",nquery,ignore.case=TRUE)
+	# add sampling
+	nquery <- sub(";? *$",paste0(" SAMPLE ",size),nquery,ignore.case=TRUE)
+	# construct new object, only to immediately convert it to a data frame and return
+	as.data.frame(monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=size,ncol.hint=ncol(x), cnames.hint=names(x), rtypes.hint=rTypes(x)))
+}
+
 # TODO: make this work for normal data.frames, aggregate.formula looks into parent.frame(), how can we simulate that?
 #aggregate.formula <- function (formula, data, FUN, ..., subset, na.action = na.omit) {
 #	if (class(data)[[1]] == "monet.frame") aggregate.monet.frame.formula(formula, data, FUN, ..., subset, na.action)

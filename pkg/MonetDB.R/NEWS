@@ -1,3 +1,6 @@
+0.5.14
+- sample() support on monet.frame
+
 0.5.13
 - bugfix in server control code from Anthony
 
