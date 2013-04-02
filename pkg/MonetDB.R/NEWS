@@ -1,3 +1,6 @@
+0.5.15
+- rbind() support on monet.frame from Anthony
+
 0.5.14
 - sample() support on monet.frame
 

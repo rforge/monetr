@@ -45,6 +45,7 @@ export(aggregatef) # temp!
 S3method(na.omit,monet.frame)
 S3method(na.fail,monet.frame)
 
+S3method(rbind,monet.frame)
 
 export(set.debug)
 

@@ -206,6 +206,76 @@ as.vector.monet.frame <- av <- function(x,...) {
 	x[k,j,drop=FALSE,...][[1]]
 }
 
+# overwrite S3 generic rbind() for monet.frame
+# code by Anthony Damico
+rbind.monet.frame <-
+		function( ... ){
+	
+	list.of.frames <- list( ... )
+	
+	# confirm all objects are monet.frame objects
+	if( !all( lapply( list.of.frames , class ) == 'monet.frame' ) ) stop( "all objects must have class( x ) == 'monet.frame'" )
+	
+	# if it's just zero or one monet.frame object, you're done1
+	if ( length( list.of.frames ) < 2 ) return( list.of.frames[[ 1 ]] )
+	
+	# confirm all monet.frame objects have the same connection
+	all.cons <- lapply( list.of.frames , attr , "conn" )
+	if ( length( unique( all.cons ) ) != 1 ) stop( "all monet.frame objects must share the same connection" )
+	
+	
+	# confirm all columns line up, sorted
+	all.names <- lapply( list.of.frames , function( x ) sort( names( x ) ) )
+	if ( length( unique( all.names ) ) != 1 ) stop( "all monet.frame objects must have the same column names" )
+	
+	# check if all columns line up, UNsorted
+	all.names <- lapply( list.of.frames , function( x ) names( x ) )
+	if( length( unique( all.names ) ) != 1 ){
+		
+		# loop through each subsequent monet.frame object
+		for ( j in 2:length( list.of.frames ) ){
+			
+			# find the position that the frame *should* be in
+			col.sort.order <- sapply( names( list.of.frames[[ 1 ]] ) , function( x ) which( x == names( list.of.frames[[ j ]] ) ) )
+			
+			# conduct the column sort
+			list.of.frames[[ j ]] <- list.of.frames[[ j ]][ , col.sort.order ]
+			
+		}
+		
+	}
+	
+	# now that the columns are sorted, confirm all columns are the same type
+	all.types <- lapply( list.of.frames , rTypes )
+	if ( length( unique( all.types ) ) != 1 ) stop( "all monet.frame objects must have the same column types" )
+	
+	
+	# extract each of the queries from the monet.frame objects
+	all.queries <- lapply( list.of.frames , getQuery )
+	
+	# now just stack all tables on top of each other
+	nquery <- paste( unlist( all.queries ) , collapse = " UNION ALL " )
+	
+	
+	# NOTE:
+	# the connection, the column count, column names and column types are taken from the first argument. 
+	# The number of expected rows is the sum of rows of all arguments.
+	# If any of the monet.frame objects has the debug flag set to TRUE, the new one will have this as well.
+	
+	x <- list.of.frames[[ 1 ]]
+	debug <- FALSE
+	nrow.hint <- 0
+	
+	# loop through each subsequent monet.frame object
+	for ( j in 1:length( list.of.frames ) ){
+		nrow.hint <- nrow.hint + nrow(list.of.frames[[j]])
+		debug <- debug || .is.debug(list.of.frames[[j]])
+	}
+	
+	# construct and return new monet.frame for rewritten query
+	monet.frame(attr(x,"conn"),nquery,debug,nrow.hint=nrow.hint, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
+}
+
 str.monet.frame <- function(object, ...) {
 	cat("MonetDB-backed data.frame surrogate\n")
 	# i agree this is overkill, but still...
