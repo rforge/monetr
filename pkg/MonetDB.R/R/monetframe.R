@@ -578,11 +578,11 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	conn <- attr(x,"conn")
 	nexpr <- NA
 	
-	if (func %in% c("min", "max", "sum","avg","abs","sign","sqrt","floor","ceiling","exp","log","cos","sin","tan","acos","asin","atan","cosh","sinh","tanh")) {
+	if (func %in% c("min", "max", "sum","avg","abs","sign","sqrt","floor","ceiling","exp","log","cos","sin","tan","acos","asin","atan","cosh","sinh","tanh","stddev_pop","stddev")) {
 		nexpr <- paste0(toupper(func),"(",col,")")
 	}
 	if (func == "range") {
-		return(c(.col.func(x,"min"),.col.func(x,"max")))
+		return(c(.col.func(x,"min",aggregate=TRUE),.col.func(x,"max",aggregate=TRUE)))
 	}
 	
 	if (func == "round") {
@@ -607,7 +607,7 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	
 	nrow.hint <- NA
 	if (aggregate) nrow.hint <- 1
-	
+	else nrow.hint <- nrow(x)
 	
 	monet.frame(conn,nquery,.is.debug(x),ncol.hint=1,nrow.hint=nrow.hint,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)
 }
@@ -616,7 +616,11 @@ sd.monet.frame <- function(x, na.rm = FALSE) {
 	if (ncol(x) != 1) 
 		stop("sd() only defined for one-column frames, consider using $ first.")
 	if (na.rm) x <- .filter.na(x) 
-	.col.func(x,"stddev_pop")
+	if (.hasColFunc(attr(x,"conn"),"stddev_pop"))
+		r <- .col.func(x,"stddev_pop",aggregate=TRUE)
+	else 
+		r <- .col.func(x,"stddev",aggregate=TRUE)
+	adf(r)[[1,1]]
 }
 
 var.monet.frame <- function (x, y = NULL, na.rm = FALSE, use) {

@@ -693,6 +693,11 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 	}
 }
 
+.hasColFunc <- function(conn,func) {
+	r <- dbSendQuery(conn,paste0("SELECT ",func,"(1);"))
+	r@env$success
+}
+
 # copied from RMonetDB, no java-specific things in here...
 # TODO: read first few rows with read.table and check types etc.
 
