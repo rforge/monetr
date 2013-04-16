@@ -64,13 +64,14 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
 		con.success <-
 			try(
 				# don't generate a giant list of warnings
-				suppressWarnings({
+				toss <-
+					capture.output({
 				
-					# connect the normal way, but with a single second timeout..
-					# but now, if the server opens *after* this line runs the first time, it runs again!
-					con <- socketConnection(host = host, port = port, blocking = TRUE, open="r+b",timeout = 1 ) 
-					.monetConnect(con,dbname,user,password)
-				} ) ,
+						# connect the normal way, but with a single second timeout..
+						# but now, if the server opens *after* this line runs the first time, it runs again!
+						con <- socketConnection(host = host, port = port, blocking = TRUE, open="r+b",timeout = 1 ) 
+						.monetConnect(con,dbname,user,password)
+					} ) ,
 				silent = TRUE
 			)
 		
@@ -79,7 +80,10 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
 	# if the timeout was reached and it's still a 'try-error', then break
 	if( class( con.success )[1] == 'try-error' ) stop( "connection timed out.  are you sure mserver is running?" )
 	
-	
+	# now that R knows the mserver is running properly, close and re-open the socket, using the correct timeout time
+	close( con )
+	con <- socketConnection(host = host, port = port, blocking = TRUE, open="r+b",timeout = timeout ) 
+	.monetConnect(con,dbname,user,password)
 
 	
 	lockenv <- new.env(parent=emptyenv())
