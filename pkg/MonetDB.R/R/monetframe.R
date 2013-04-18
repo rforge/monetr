@@ -276,6 +276,260 @@ rbind.monet.frame <-
 	monet.frame(attr(x,"conn"),nquery,debug,nrow.hint=nrow.hint, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
 }
 
+
+
+# overwrite S3 generic merge() for monet.frame
+# code by Anthony Damico
+merge.monet.frame <-
+	function( 
+		x , y , 
+		by = intersect( names(x) , names(y) ) , 
+		by.x = by , by.y = by , 
+		all = FALSE , all.x = all , all.y = all , 
+		sort = TRUE # , 
+		# suffixes = c(".x", ".y") , incomparables = NULL , ... 
+	) {
+
+		if ( any( grepl( "." , c( names( x ) , names( y ) ) , fixed = TRUE ) ) ) stop( "`.` not allowed in column names for merge" )
+	
+		# confirm all objects are monet.frame objects
+		if( ( class( x ) != 'monet.frame' ) | ( class( y ) != 'monet.frame' ) ) stop( "all objects must have class( x ) == 'monet.frame'" )
+
+		# confirm all monet.frame objects have the same connection
+		all.cons <- list( attr( x , "conn" ) , attr( y , "conn" ) )
+		if ( length( unique( all.cons ) ) != 1 ) stop( "x and y must share the same connection" )
+
+		# if by.x and by.y are not the same names, merge.default keeps the columns from by.x
+		# so merge.monet.frame should act the same way
+
+		# figure out what kind of join this will be
+		join.type <- 
+			ifelse( all.x & all.y , "FULL" , 
+			ifelse( all.x & !all.y , "LEFT" ,
+			ifelse( !all.x & all.y , "RIGHT" ,
+			ifelse( !all.x & !all.y , "INNER" , stop("mind blown") ) ) ) )
+
+		
+		# if it's a left join or inner join
+		if ( join.type %in% c( "LEFT" , "INNER" ) ){
+			# keep *all* columns from the left hand side data frame
+			cols.x <- names( x )
+			
+			# keep only non-intersecting columns from the y data frame *and also* throw out by.y variables
+			cols.y <- names( y )[ !( names( y ) %in% by.y ) ]
+		} 
+		# if it's a right join
+		if ( join.type == "RIGHT" ){
+			# flip it
+			cols.y <- names( y )
+			cols.x <- names( x )[ !( names( x ) %in% by.x ) ]
+		} 
+		
+		# otherwise it's a full join
+		if ( join.type == "FULL" ){
+			# keep none of the by.x or by.y columns
+			cols.x <- names( x )[ !( names( x ) %in% by.x ) ]		
+			cols.y <- names( y )[ !( names( y ) %in% by.y ) ]		
+		}
+		
+		
+		
+		# this is a warning in merge.default, but merge.monet.frame can be stricter for the time being.
+		any.duplicates <- intersect( cols.x , cols.y ) 
+		if ( length( any.duplicates ) > 0 ) stop( paste( "column name" , any.duplicates , "duplicated in the result" ) )
+		
+		# confirm merge variable vectors have the same length
+		if ( length( by.x ) != length( by.y ) ) stop( 'by.x and by.x must have the same length' )
+		
+		
+		# generate three random strings to name these tables in the temporary query
+		random.x <-
+			paste(
+				sample(
+					letters ,
+					10 , 
+					replace = TRUE
+				) ,
+				collapse = ""
+			)
+			
+		random.y <-
+			paste(
+				sample(
+					letters ,
+					10 , 
+					replace = TRUE
+				) ,
+				collapse = ""
+			)
+		
+		random.full <-
+			paste(
+				sample(
+					letters ,
+					10 , 
+					replace = TRUE
+				) ,
+				collapse = ""
+			)
+			
+		
+		# figure out both table queries and name them something new
+		x.query <- paste( "(" , attr( x , "query" ) , ") as" , random.x )
+		y.query <- paste( "(" , attr( y , "query" ) , ") as" , random.y )
+		
+		
+
+
+		# if it's not a full join, just construct a standard query
+		if ( join.type != 'FULL' ){
+				
+			# standard SELECT statement construction
+			if ( join.type != "RIGHT" ){
+
+				order.segment <-
+					paste(
+						paste( random.x , by.x , sep = "." ) ,
+						paste( random.y , by.y , sep = "." ) ,
+						sep = ", " ,
+						collapse = ", "
+					)
+
+				select.segment <-
+					paste(
+						paste( random.x , cols.x , sep = "." , collapse = ", " ) ,
+						paste( random.y , cols.y , sep = "." , collapse = ", " ) ,
+						sep = ", "
+					)
+					
+			} else {
+
+				order.segment <-
+					paste(
+						paste( random.y , by.y , sep = "." ) ,
+						paste( random.x , by.x , sep = "." ) ,
+						sep = ", " ,
+						collapse = ", "
+					)
+
+				# fancy SELECT statement construction to match the output of the merge() function
+				select.segment <-
+					paste(
+						paste(
+							paste0( rep( random.y , length( by.y ) ) , "." , by.y , " as " , by.x ) , collapse = ", "
+						) ,
+						paste( random.x , cols.x[ !( cols.x %in% by.x ) ] , sep = "." , collapse = ", " ) ,
+						paste( random.y , cols.y[ !( cols.y %in% by.y ) ]  , sep = "." , collapse = ", " ) ,
+						collapse = ", " , sep = ", "
+					)
+			
+			}
+			
+			on.segment <-
+				paste( 
+					paste( random.x , by.x , sep = "." ) , 
+					paste( random.y , by.y , sep = "." ) , 
+					sep = " = " , 
+					collapse = " AND "
+				)
+		
+			join.query <-
+				paste0(
+					"SELECT " ,
+					select.segment ,
+					" FROM " , x.query , " " , join.type , " JOIN " , y.query ,
+					" ON " , on.segment ,
+					ifelse( sort , paste( " ORDER BY" , order.segment ) , "" ) 
+				)
+				
+		} else {
+		
+			# create a UNION table of both sides and LEFT/RIGHT join to each side of that table
+			union.segment <-
+				paste(
+					"( SELECT" ,
+					paste( random.x , by.x , sep = "." , collapse = ", " ) ,
+					"FROM" ,
+					x.query ,
+					"UNION" ,
+					"SELECT" ,
+					paste( random.y , by.y , sep = "." , collapse = ", " ) ,
+					"FROM" ,
+					y.query ,
+					" ) as " ,
+					random.full
+				)
+				
+			order.segment <-
+				paste(
+					paste( random.full , by.x , sep = "." ) ,
+					sep = ", " ,
+					collapse = ", "
+				)
+
+			
+			select.segment <-
+				paste(
+					paste( random.full , by.x , sep = "." , collapse = ", " ) ,
+					paste( random.x , cols.x , sep = "." , collapse = ", " ) ,
+					paste( random.y , cols.y , sep = "." , collapse = ", " ) ,
+					sep = ", "
+				)
+
+			x.on.segment <-
+				paste( 
+					paste( random.full , by.x , sep = "." ) , 
+					paste( random.x , by.x , sep = "." ) , 
+					sep = " = " , 
+					collapse = " AND "
+				)
+
+
+			y.on.segment <-
+				paste( 
+					paste( random.full , by.x , sep = "." ) , 
+					paste( random.y , by.y , sep = "." ) , 
+					sep = " = " , 
+					collapse = " AND "
+				)
+
+				
+			join.query <-
+				paste(
+					"SELECT" ,
+					select.segment ,
+					"FROM" , 
+						union.segment ,
+						"LEFT JOIN" ,
+						x.query , 
+						"ON" ,
+						x.on.segment ,
+						"LEFT JOIN" ,
+						y.query ,
+						"ON" ,
+						y.on.segment ,
+					ifelse( sort , paste( " ORDER BY" , order.segment ) , "" ) 
+				)
+			
+		}
+		
+		
+		list.of.frames <- list( x , y )
+		debug <- FALSE
+		nrow.hint <- 0
+		
+		# loop through each subsequent monet.frame object
+		for ( j in 1:length( list.of.frames ) ){
+			nrow.hint <- nrow.hint + nrow(list.of.frames[[j]])
+			debug <- debug || .is.debug(list.of.frames[[j]])
+		}
+		
+		# return the monet.frame object now connected to the new table
+		monet.frame(attr(x,"conn"),join.query,debug,nrow.hint=nrow.hint, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
+	}
+
+
+
 str.monet.frame <- function(object, ...) {
 	cat("MonetDB-backed data.frame surrogate\n")
 	# i agree this is overkill, but still...
