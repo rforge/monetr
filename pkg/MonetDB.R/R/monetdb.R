@@ -65,8 +65,8 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
 			try(
 				# don't generate a giant list of warnings
 				toss <-
-					capture.output({
-						suppressWarnings({
+					suppressWarnings({
+						capture.output({
 							# connect the normal way, but with a single second timeout..
 							# but now, if the server opens *after* this line runs the first time, it runs again!
 							con <- socketConnection(host = host, port = port, blocking = TRUE, open="r+b",timeout = 1 ) 
