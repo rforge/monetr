@@ -32,6 +32,8 @@
   \code{\link[DBI]{dbConnect}} for documentation how to invoke the driver
   
   \code{\link[MonetDB.R]{monet.frame}} for a \code{data.frame()}-like interface to the DB  
+  
+  \code{\link[=control]{monetdb.server.setup}} to set up and start a local MonetDB server from R
 }
 \examples{
 \dontrun{

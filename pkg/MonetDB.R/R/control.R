@@ -1,11 +1,21 @@
 monetdb.server.start <-
 		function( bat.file ){
 	
-	if ( .Platform$OS.type != "windows" ) {
+	if ( .Platform$OS.type == "unix" ) {
+		if( !file.exists( bat.file ) ) stop( paste( bat.file , "does not exist. Run monetdb.server.setup() to create a batch file." ) )
+	
+		# uugly, find path of pid file again by parsing shell script.
+		sc <- read.table(bat.file,sep="\n",stringsAsFactors=F)
+		pidfile <- substring(sc[[2,1]],11)
 		
-		stop( "mserver.start() not implemented yet on non-windows platforms. To come." )
+		# run script
+		system(bat.file,wait=T)
 		
-	} else {
+		# read pid from file
+		pid <- scan(pidfile,what=integer(),n=1)
+		return(pid)
+	} 
+	if ( .Platform$OS.type == "windows" ) {
 		
 		# capture the result of a `tasklist` system call
 		before.win.tasklist <- system2( 'tasklist' , stdout = TRUE )
@@ -61,11 +71,11 @@ monetdb.server.start <-
 monetdb.server.stop <-
 		function( correct.pid ){
 	
-	if ( .Platform$OS.type != "windows" ) {
-		
-		stop( "mserver.stop() not implemented yet on non-windows platforms. To come." )
-		
-	} else {
+	if ( .Platform$OS.type == "unix" ) {
+		system(paste0("kill ",correct.pid))
+	} 
+	
+	if ( .Platform$OS.type == "windows" ) {
 		
 		# write the taskkill command line
 		taskkill.cmd <- 
@@ -80,9 +90,7 @@ monetdb.server.stop <-
 		system( taskkill.cmd )
 		
 	}
-	
 }
-
 
 monetdb.server.setup <-
 		function( 
@@ -92,7 +100,7 @@ monetdb.server.setup <-
 				# must be empty or not exist
 				
 				# find the main path to the monetdb installation program
-				monetdb.program.path = "C:/Program Files/MonetDB/MonetDB5" ,
+				monetdb.program.path ,
 				
 				# choose a database name
 				dbname = "demo" ,
@@ -105,9 +113,6 @@ monetdb.server.setup <-
 ){
 	
 	
-	if ( .Platform$OS.type != "windows" ) 
-		stop( "mserver.setup() not implemented yet on non-windows platforms. To come." )
-	# in other cases, create a shellscript... (*.sh) with the same effect as the .bat file
 	
 	
 	# switch all slashes to match windows
@@ -118,7 +123,7 @@ monetdb.server.setup <-
 	# determine that the monetdb.program.path has been correctly specified #
 	
 	# first find the alleged path of mclient.exe
-	mcl <- file.path( monetdb.program.path , "bin" , "mclient.exe" )
+	mcl <- file.path( monetdb.program.path , "bin" )
 	
 	# then confirm it exists
 	if( !file.exists( mcl ) ) stop( paste( mcl , "does not exist.  are you sure monetdb.program.path has been specified correctly?" ) )
@@ -148,13 +153,16 @@ monetdb.server.setup <-
 	
 	
 	# determine the batch file's location on the local disk
-	bfl <- normalizePath( file.path( database.directory , paste0( dbname , ".bat" ) ) , mustWork = FALSE )
+	bfl <- normalizePath( file.path( database.directory ,dbname  ) , mustWork = FALSE )
 	
 	# determine the dbfarm's location on the local disk
 	dbfl <- normalizePath( file.path( database.directory , dbname ) , mustWork = FALSE )
 	
 	# create the dbfarm's directory
 	dir.create( dbfl )
+	if ( .Platform$OS.type == "windows" ) {
+		bfl <- paste0(bfl,".bat")
+		
 	
 	# store all file lines for the .bat into a character vector
 	bat.contents <-
@@ -208,11 +216,24 @@ monetdb.server.setup <-
 			
 			)
 	
-	
+			}
+			
+		if ( .Platform$OS.type == "unix" ) { # create shell script
+			bfl <- paste0(bfl,".sh")
+			bat.contents <- c('#!/bin/sh',
+					paste0( monetdb.program.path,
+							'/bin/mserver5 --set prefix=',monetdb.program.path,' --set exec_prefix=',monetdb.program.path,' --dbpath ',paste0(database.directory,"/",dbname),' --set mapi_port=' ,
+							dbport, " --daemon yes > /dev/null &" 
+					),paste0("echo $! > ",database.directory,"/mserver5.started.from.R.pid"))
+					
+			
+		}
 	
 	# write the .bat contents to a file on the local disk
 	writeLines( bat.contents , bfl )
-	
+	if ( .Platform$OS.type == "unix" ) {
+		Sys.chmod(bfl,mode="755")
+	}
 	# return the filepath to the batch file
 	bfl
 }

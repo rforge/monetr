@@ -1,3 +1,8 @@
+0.6
+- merge() support from Anthony
+- CRAN cleanup
+- MonetDB control code for UNIX-like systems
+
 0.5.16
 - bugfixes in monet.frame
 
