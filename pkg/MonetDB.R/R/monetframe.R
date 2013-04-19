@@ -10,7 +10,9 @@ mf <- function(database,table,host="localhost",port=50000,user="monetdb",pass="m
 
 # can either be given a query or simply a table name
 # now supports hints on table structure to speed up initialization
-monet.frame <- monetframe <- function(conn,tableOrQuery,debug=FALSE,rtypes.hint=NA,cnames.hint=NA,ncol.hint=NA,nrow.hint=NA) {
+monet.frame <-  monetframe <- function(conn,tableOrQuery,debug=FALSE) monet.frame.internal(conn,tableOrQuery,debug)
+
+monet.frame.internal <- function(conn,tableOrQuery,debug=FALSE,rtypes.hint=NA,cnames.hint=NA,ncol.hint=NA,nrow.hint=NA) {
 	if(missing(conn)) stop("'conn' must be specified")
 	if(missing(tableOrQuery)) stop("a sql query or a table name must be specified")
 	
@@ -60,7 +62,7 @@ monet.frame <- monetframe <- function(conn,tableOrQuery,debug=FALSE,rtypes.hint=
 		limit <- .getLimit(query)
 		if (limit > 0) nrow <- min(nrow,limit)
 		if (nrow < 1) 
-			stop(query, " has zero-row result set. Meh.")
+			warning(query, " has zero-row result set.")
 		
 		attr(obj,"nrow") <- nrow
 		if (debug) cat(paste0("II: 'Re-Initializing row count.'\n",sep=""))	
@@ -69,7 +71,7 @@ monet.frame <- monetframe <- function(conn,tableOrQuery,debug=FALSE,rtypes.hint=
 	return(obj)
 }
 
-set.debug <- function(x,debug,...){
+set.debug <- function(x,debug){
 	attr(x,"debug") <- debug
 }
 
@@ -167,7 +169,7 @@ as.vector.monet.frame <- av <- function(x,...) {
 		warning("drop=TRUE for one-column or one-row results is not supported. Overriding to FALSE")
 	
 	# construct and return new monet.frame for rewritten query
-	monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=nrow.hint,ncol.hint=ncol.hint, cnames.hint=cnames.hint, rtypes.hint=rtypes.hint)
+	monet.frame.internal(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=nrow.hint,ncol.hint=ncol.hint, cnames.hint=cnames.hint, rtypes.hint=rtypes.hint)
 }
 
 .getOffset <- function(query) {
@@ -273,7 +275,7 @@ rbind.monet.frame <-
 	}
 	
 	# construct and return new monet.frame for rewritten query
-	monet.frame(attr(x,"conn"),nquery,debug,nrow.hint=nrow.hint, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
+	monet.frame.internal(attr(x,"conn"),nquery,debug,nrow.hint=nrow.hint, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
 }
 
 
@@ -288,7 +290,7 @@ merge.monet.frame <-
 		all = FALSE , all.x = all , all.y = all , 
 		sort = TRUE # , 
 		# suffixes = c(".x", ".y") , incomparables = NULL , ... 
-	) {
+	,...) {
 
 		if ( any( grepl( "." , c( names( x ) , names( y ) ) , fixed = TRUE ) ) ) stop( "`.` not allowed in column names for merge" )
 	
@@ -525,7 +527,7 @@ merge.monet.frame <-
 		}
 		
 		# return the monet.frame object now connected to the new table
-		monet.frame(attr(x,"conn"),join.query,debug,nrow.hint=nrow.hint, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
+		monet.frame.internal(attr(x,"conn"),join.query,debug,nrow.hint=nrow.hint, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
 	}
 
 
@@ -636,7 +638,7 @@ subset.monet.frame<-function(x,ssdef,...){
 	}
 	
 	# construct and return new monet.frame for rewritten query
-	monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
+	monet.frame.internal(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA, ncol.hint=ncol(x),cnames.hint=names(x), rtypes.hint=rTypes(x))	
 }
 #
 #rowsum.monet.frame <- function (x, group, reorder = TRUE, na.rm = FALSE, ...) {
@@ -805,10 +807,10 @@ Ops.monet.frame <- function(e1,e2) {
 	# construct and return new monet.frame for rewritten query
 	cnames.hint <- c(paste0(.Generic,"_result"))
 
-	monet.frame(conn,nquery,isdebug,nrow.hint=nrow.hint,ncol.hint=1,cnames.hint=cnames.hint, rtypes.hint=rtypes.hint)	
+	monet.frame.internal(conn,nquery,isdebug,nrow.hint=nrow.hint,ncol.hint=1,cnames.hint=cnames.hint, rtypes.hint=rtypes.hint)	
 }
 
-# works: min/max/sum/range
+# works: min/max/sum/range/prod
 # TODO: implement  ‘all’, ‘any’, ‘prod’ (product)
 Summary.monet.frame <- function(x,na.rm=FALSE,...) {
 	if (na.rm) x <- .filter.na(x)
@@ -832,7 +834,7 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	conn <- attr(x,"conn")
 	nexpr <- NA
 	
-	if (func %in% c("min", "max", "sum","avg","abs","sign","sqrt","floor","ceiling","exp","log","cos","sin","tan","acos","asin","atan","cosh","sinh","tanh","stddev_pop","stddev")) {
+	if (func %in% c("min", "max", "sum","avg","abs","sign","sqrt","floor","ceiling","exp","log","cos","sin","tan","acos","asin","atan","cosh","sinh","tanh","stddev_pop","stddev","prod")) {
 		nexpr <- paste0(toupper(func),"(",col,")")
 	}
 	if (func == "range") {
@@ -863,7 +865,7 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	if (aggregate) nrow.hint <- 1
 	else nrow.hint <- nrow(x)
 	
-	monet.frame(conn,nquery,.is.debug(x),ncol.hint=1,nrow.hint=nrow.hint,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)
+	monet.frame.internal(conn,nquery,.is.debug(x),ncol.hint=1,nrow.hint=nrow.hint,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)
 }
 
 sd.monet.frame <- function(x, na.rm = FALSE) {
@@ -880,6 +882,8 @@ sd.monet.frame <- function(x, na.rm = FALSE) {
 var.monet.frame <- function (x, y = NULL, na.rm = FALSE, use) {
 	if (ncol(x) != 1) 
 		stop("var() only defined for one-column frames, consider using $ first.")
+	if (!missing(use)) stop("use parameter not supported on var() for monet.frame objects")
+	if (!missing(y)) stop("y parameter not supported on var() for monet.frame objects")
 	if (na.rm) x <- .filter.na(x) 
 	mean((x-mean(x))^2)
 }
@@ -895,8 +899,8 @@ sample.default <- function (x, size, replace = FALSE, prob = NULL) base::sample(
 sample <- function (x, size, replace = FALSE, prob = NULL) UseMethod("sample")
 
 sample.monet.frame <- function (x, size, replace = FALSE, prob = NULL){
-	if (replace) stop("replace=TRUE not supported on monet.frame objects")
-	if (!missing(prob)) stop("prob parameter not supported on monet.frame objects")
+	if (replace) stop("replace=TRUE not supported on sample() for monet.frame objects")
+	if (!missing(prob)) stop("prob parameter not supported on sample() for  monet.frame objects")
 	if (!is.numeric(size) && length(size) != 1) stop("size parameter needs to be a single constant integer value")
 	
 	query <- nquery <- getQuery(x)
@@ -905,7 +909,7 @@ sample.monet.frame <- function (x, size, replace = FALSE, prob = NULL){
 	# add sampling
 	nquery <- sub(";? *$",paste0(" SAMPLE ",size),nquery,ignore.case=TRUE)
 	# construct new object, only to immediately convert it to a data frame and return
-	as.data.frame(monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=size,ncol.hint=ncol(x), cnames.hint=names(x), rtypes.hint=rTypes(x)))
+	as.data.frame(monet.frame.internal(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=size,ncol.hint=ncol(x), cnames.hint=names(x), rtypes.hint=rTypes(x)))
 }
 
 # TODO: make this work for normal data.frames, aggregate.formula looks into parent.frame(), how can we simulate that?
@@ -992,7 +996,7 @@ aggregate.monet.frame <- function(x, by, FUN, ..., simplify = TRUE) {
 	# part2: group by, directly after where, before having/orderby/limit/offset
 	nquery <- gsub("(SELECT.*?)(HAVING|ORDER[ ]+BY|LIMIT|OFFSET|;|$)",paste0("\\1 GROUP BY ",grouping," \\2"),nquery,ignore.case=TRUE)
 	
-	monet.frame(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA, ncol.hint=ncol.hint,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)	
+	monet.frame.internal(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA, ncol.hint=ncol.hint,cnames.hint=cnames.hint,rtypes.hint=rtypes.hint)	
 }
 
 
@@ -1019,7 +1023,7 @@ sort.monet.frame <- function (x, decreasing = FALSE, ...) {
 	if (decreasing) orderby <- paste0(orderby," DESC")
 	
 	nquery <- sub("SELECT (.*)(LIMIT|OFFSET|;|$)",paste0("SELECT \\1 ",orderby," \\2"),nquery,ignore.case=TRUE)	
-	monet.frame(conn,nquery,.is.debug(x),nrow.hint=nrow(x),ncol.hint=ncol(x),cnames.hint=names(x),rtypes.hint=rTypes(x))
+	monet.frame.internal(conn,nquery,.is.debug(x),nrow.hint=nrow(x),ncol.hint=ncol(x),cnames.hint=names(x),rtypes.hint=rTypes(x))
 }
 
 quantile.monet.frame <-  function(x, probs = seq(0, 1, 0.25), na.rm = FALSE,
