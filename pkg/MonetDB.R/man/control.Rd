@@ -8,6 +8,11 @@
   Control a MonetDB server from the R shell.
 }
 \description{
+The MonetDB server can be controlled from the R shell using the functions described below. 
+The general process is to generate a MonetDb database directory and startup script using 
+\code{monetdb.server.setup}, then pass the path to the startup script to \code{monetdb.server.start}. 
+This function will return the process id of the database server, which in turn can be passed to 
+\code{monetdb.server.stop} to stop the database server again. 
 }
 \usage{
 monetdb.server.setup(database.directory,monetdb.program.path, dbname = "demo", dbport = 50000)
