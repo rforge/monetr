@@ -129,7 +129,7 @@ setMethod("dbReadTable", "MonetDBConnection", def=function(conn, name, ...) {
 setMethod("dbGetQuery", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ...) {
 	res <- dbSendQuery(conn, statement, ...)
 	if (!res@env$success) 
-		stop(paste0("Unable to execute statement '",statement,"'. Server says '",res@env$message,"'."))
+		stop(paste0("Unable to execute statement '",statement,"'.\nServer says '",res@env$message,"'."))
 	data <- fetch(res,-1)
 	dbClearResult(res)
 	return(data)
@@ -229,7 +229,7 @@ setMethod("dbSendUpdate", signature(conn="MonetDBConnection", statement="charact
 	}
 	res <- dbSendQuery(conn,statement,async=async)
 	if (!res@env$success) {
-		stop(paste(statement,"failed! Server says:",res@env$message))
+		stop(paste(statement,"failed!\nServer says:",res@env$message))
 	}
 	TRUE
 })
