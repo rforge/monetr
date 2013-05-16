@@ -623,13 +623,11 @@ length.monet.frame <- function(x) {
 	ncol(x)
 }
 
-# TODO: fix issue with constant values, subset(x,foo > "bar")
-
 # http://stat.ethz.ch/R-manual/R-patched/library/base/html/subset.html
-subset.monet.frame<-function(x,ssdef,...){
+subset.monet.frame<-function(x,subset,...){
+	subset<-substitute(subset)
+	restr<-sqlexpr(subset)
 	query <- getQuery(x)
-	ssdef<-substitute(ssdef)
-	restr <- sqlexpr(ssdef)
 	if (length(grep(" WHERE ",query,ignore.case=TRUE)) > 0) {
 		nquery <- sub("WHERE (.*?) (GROUP|HAVING|ORDER|LIMIT|OFFSET|;)",paste0("WHERE \\1 AND ",restr," \\2"),query,ignore.case=TRUE)
 	}
@@ -1081,7 +1079,8 @@ Math.monet.frame <- function(x,digits=0,...) {
 }
 
 # 'borrowed' from sqlsurvey, translates a subset() argument to sqlish
-sqlexpr<-function(expr){
+
+sqlexpr<-function(expr, design){
 	nms<-new.env(parent=emptyenv())
 	assign("%in%"," IN ", nms)
 	assign("&", " AND ", nms)
@@ -1090,10 +1089,14 @@ sqlexpr<-function(expr){
 	assign("!"," NOT ",nms)
 	assign("I","",nms)
 	assign("~","",nms)
+	assign("(","",nms)
 	out <-textConnection("str","w",local=TRUE)
 	inorder<-function(e){
 		if(length(e) ==1) {
-			cat(e, file=out)
+			if (is.character(e))
+				cat("'",e,"'",file=out,sep="")
+			else
+				cat(e, file=out)
 		} else if (e[[1]]==quote(is.na)){
 			cat("(",file=out)
 			inorder(e[[2]])

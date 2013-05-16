@@ -1,3 +1,6 @@
+0.6.2
+- subset() is back!
+
 0.6
 - merge() support from Anthony
 - CRAN cleanup

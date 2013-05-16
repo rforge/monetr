@@ -37,7 +37,7 @@ S3method(head,monet.frame)
 S3method(tail,monet.frame)
 S3method("[",monet.frame)
 S3method("$",monet.frame)
-#S3method(subset,monet.frame) # subset disabled for now, needs more work and is not ready yet
+S3method(subset,monet.frame)
 S3method(na.omit,monet.frame)
 S3method(sample, monet.frame)
 S3method(sample, default)
