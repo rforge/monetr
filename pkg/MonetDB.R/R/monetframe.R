@@ -46,6 +46,7 @@ monet.frame.internal <- function(conn,tableOrQuery,debug=FALSE,rtypes.hint=NA,cn
 		attr(obj,"cnames") <- res$column
 		attr(obj,"ncol") <- length(res$column)
 		attr(obj,"rtypes") <- lapply(res$type,monetdbRtype)
+		
 		if (debug) cat(paste0("II: 'Re-Initializing column info.'\n",sep=""))	
 		
 	}
@@ -910,7 +911,7 @@ tabulate.monet.frame <- function (bin, nbins = max(bin)) {
 	if (ncol(bin) != 1) 
 		stop("tabulate() only defined for one-column frames, consider using $ first.")
 	
-	isNum <- attr(bin,"rtypes")[[1]] == "numeric"
+	isNum <- rTypes(bin)[[1]] == "numeric"
 	if (!isNum)
 		stop("tabulate() is only defined for numeric columns.")
 	if (nbins > .Machine$integer.max) 
@@ -920,14 +921,16 @@ tabulate.monet.frame <- function (bin, nbins = max(bin)) {
 	if (is.na(nbins)) 
 		stop("invalid value of 'nbins'")
 	
-	query <- getQuery(bin)
-	
-	x <- .col.func(bin,"cast","integer",FALSE,"t1",FALSE)
-	nquery <- paste0("SELECT t1,COUNT(t1) AS ct FROM (",getQuery(x),") AS t WHERE t1 > 0 GROUP BY t1 ORDER BY t1 LIMIT ",nbins,";");
-	
-	counts <- as.data.frame(monet.frame.internal(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA,ncol.hint=2, cnames.hint=c("t1"), rtypes.hint=c("numeric")))
+	# TODO: be more specific in typing, so we can check for int/double cols
+	#if (!grepl("INT",dbTypes(bin)[[1]]))
+	bin <- .col.func(bin,"cast","integer",FALSE,"t1",FALSE)
+		
+	nquery <- paste0("SELECT t1,COUNT(t1) AS ct FROM (",getQuery(bin),") AS t WHERE t1 > 0 GROUP BY t1 ORDER BY t1 LIMIT ",nbins,";");
+	if (.is.debug(bin))
+		cat(paste0("EX: '",nquery,"'\n",sep=""))	
+
+	counts <- dbGetQuery(attr(bin,"conn"),nquery)	
 	indices <- data.frame(t1=seq(1,nbins))
-	
 	d <- merge(indices,counts,all.x=T,by=c("t1"))$ct
 	d[is.na(d)] <- 0
 	return(d)
@@ -936,7 +939,7 @@ tabulate.monet.frame <- function (bin, nbins = max(bin)) {
 unique.monet.frame <- function (x, incomparables = FALSE, fromLast = FALSE, ...) {
 	if (ncol(x) != 1) 
 		stop("tabulate() only defined for one-column frames, consider using $ first.")
-	as.vector(.col.func(x,"distinct",num=FALSE))
+	as.vector(.col.func(x,"distinct",num=FALSE,aggregate=TRUE))
 }
 
 # overwrite non-generic functions sd and var
