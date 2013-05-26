@@ -626,11 +626,9 @@ length.monet.frame <- function(x) {
 # http://stat.ethz.ch/R-manual/R-patched/library/base/html/subset.html
 subset.monet.frame<-function(x,subset,...){
 	subset<-substitute(subset)
-	restr<-sqlexpr(subset)
+	restr<-sqlexpr(subset,parent.frame())
 	query <- getQuery(x)
-	print(restr)
 	if (length(grep(" WHERE ",query,ignore.case=TRUE)) > 0) {
-		print("extend")
 		nquery <- sub("WHERE (.*?) (GROUP|HAVING|ORDER|LIMIT|OFFSET|;|$)",paste0("WHERE \\1 AND ",restr," \\2"),query,ignore.case=TRUE)
 	}
 	else {
@@ -1135,7 +1133,7 @@ Math.monet.frame <- function(x,digits=0,...) {
 
 # 'borrowed' from sqlsurvey, translates a subset() argument to sqlish
 
-sqlexpr<-function(expr, design){
+sqlexpr<-function(expr,env=emptyenv()){
 	nms<-new.env(parent=emptyenv())
 	assign("%in%"," IN ", nms)
 	assign("&", " AND ", nms)
@@ -1148,10 +1146,21 @@ sqlexpr<-function(expr, design){
 	out <-textConnection("str","w",local=TRUE)
 	inorder<-function(e){
 		if(length(e) ==1) {
+			nm <- deparse(e)
 			if (is.character(e))
 				cat("'",e,"'",file=out,sep="")
-			else
+			else if(exists(nm, env)) {
+				val <- get(nm,env)
+				if (is.numeric(val))
+					cat(val, file=out)
+				else if (is.character(val))
+					cat("'",val,"'",file=out,sep="")
+				else 
+					cat(e, file=out)
+			}
+			else {
 				cat(e, file=out)
+			}
 		} else if (e[[1]]==quote(is.na)){
 			cat("(",file=out)
 			inorder(e[[2]])
