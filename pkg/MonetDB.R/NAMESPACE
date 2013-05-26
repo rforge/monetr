@@ -60,6 +60,16 @@ S3method(median,monet.frame)
 S3method(aggregate,monet.frame)
 export(aggregatef) # temp!
 
+export(tabulate)
+S3method(tabulate, monet.frame)
+S3method(tabulate, default)
+
+# not sure
+export(is.vector.monet.frame)
+
+S3method(unique, monet.frame)
+S3method(range, monet.frame)
+
 # reorganization
 S3method(rbind,monet.frame)
 S3method(merge,monet.frame)

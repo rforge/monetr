@@ -628,8 +628,10 @@ subset.monet.frame<-function(x,subset,...){
 	subset<-substitute(subset)
 	restr<-sqlexpr(subset)
 	query <- getQuery(x)
+	print(restr)
 	if (length(grep(" WHERE ",query,ignore.case=TRUE)) > 0) {
-		nquery <- sub("WHERE (.*?) (GROUP|HAVING|ORDER|LIMIT|OFFSET|;)",paste0("WHERE \\1 AND ",restr," \\2"),query,ignore.case=TRUE)
+		print("extend")
+		nquery <- sub("WHERE (.*?) (GROUP|HAVING|ORDER|LIMIT|OFFSET|;|$)",paste0("WHERE \\1 AND ",restr," \\2"),query,ignore.case=TRUE)
 	}
 	else {
 		nquery <- sub("(GROUP|HAVING|ORDER[ ]+BY|LIMIT|OFFSET|;|$)",paste0(" WHERE ",restr," \\1"),query,ignore.case=TRUE)
@@ -819,11 +821,11 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	adf(.col.func(x,"avg",aggregate=TRUE))[[1,1]]
 }
 
-.col.func <- function(x,func,extraarg="",aggregate=FALSE){
+.col.func <- function(x,func,extraarg="",aggregate=FALSE,rename=NA,num=TRUE){
 	if (ncol(x) != 1) 
 		stop(func, " only defined for one-column frames, consider using $ first.")
 	
-	if (attr(x,"rtypes")[[1]] != "numeric")
+	if (num && attr(x,"rtypes")[[1]] != "numeric")
 		stop(names(x), " is not a numerical column.")
 	
 	query <- getQuery(x)
@@ -832,7 +834,7 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 	conn <- attr(x,"conn")
 	nexpr <- NA
 	
-	if (func %in% c("min", "max", "sum","avg","abs","sign","sqrt","floor","ceiling","exp","log","cos","sin","tan","acos","asin","atan","cosh","sinh","tanh","stddev_pop","stddev","prod")) {
+	if (func %in% c("min", "max", "sum","avg","abs","sign","sqrt","floor","ceiling","exp","log","cos","sin","tan","acos","asin","atan","cosh","sinh","tanh","stddev_pop","stddev","prod","distinct")) {
 		nexpr <- paste0(toupper(func),"(",col,")")
 	}
 	if (func == "range") {
@@ -848,9 +850,16 @@ mean.monet.frame <- avg.monet.frame <- function(x,...) {
 		# so, let's adapt
 		nexpr <- paste0("ROUND(",col,",-1*LENGTH(",col,")+",extraarg,")")
 	}
+	
+	if (func == "cast") {
+		nexpr <- paste0("CAST(",col," as ",extraarg,")")
+	}
 		
 	if (is.na(nexpr)) 
 		stop(func, " not supported (yet). Sorry.")
+	
+	if (!is.na(rename)) 
+		nexpr <- paste0(nexpr," AS ",rename)
 	
 	# replace the thing between SELECT and WHERE with the new value and return new monet.frame
 	nquery <- sub("select (.*?) from",paste0("SELECT ",nexpr," FROM"),query,ignore.case=TRUE)
@@ -884,6 +893,52 @@ var.monet.frame <- function (x, y = NULL, na.rm = FALSE, use) {
 	if (!missing(y)) stop("y parameter not supported on var() for monet.frame objects")
 	if (na.rm) x <- .filter.na(x) 
 	mean((x-mean(x))^2)
+}
+
+is.vector.monet.frame <- function (x, mode = "any") { 
+	if (mode != "any") stop("Type checking not yet supported in is.vector()")
+	return(ncol(x) == 1)
+}
+
+range.monet.frame <- function (x,na.rm=FALSE) {
+	c(min(x,na.rm),max(x,na.rm))
+}
+
+
+# whoa, this is a beast. but it works, so all is well...
+tabulate.default <- function (bin, nbins = max(1L, bin, na.rm = TRUE)) base::tabulate (bin, nbins) 
+tabulate <- function (bin, ...) UseMethod("tabulate")
+tabulate.monet.frame <- function (bin, nbins = max(bin)) {
+	if (ncol(bin) != 1) 
+		stop("tabulate() only defined for one-column frames, consider using $ first.")
+	
+	isNum <- attr(bin,"rtypes")[[1]] == "numeric"
+	if (!isNum)
+		stop("tabulate() is only defined for numeric columns.")
+	if (nbins > .Machine$integer.max) 
+		stop("attempt to make a table with >= 2^31 elements")
+	
+	nbins <- as.integer(nbins)
+	if (is.na(nbins)) 
+		stop("invalid value of 'nbins'")
+	
+	query <- getQuery(bin)
+	
+	x <- .col.func(bin,"cast","integer",FALSE,"t1",FALSE)
+	nquery <- paste0("SELECT t1,COUNT(t1) AS ct FROM (",getQuery(x),") AS t WHERE t1 > 0 GROUP BY t1 ORDER BY t1 LIMIT ",nbins,";");
+	
+	counts <- as.data.frame(monet.frame.internal(attr(x,"conn"),nquery,.is.debug(x),nrow.hint=NA,ncol.hint=2, cnames.hint=c("t1"), rtypes.hint=c("numeric")))
+	indices <- data.frame(t1=seq(1,nbins))
+	
+	d <- merge(indices,counts,all.x=T,by=c("t1"))$ct
+	d[is.na(d)] <- 0
+	return(d)
+}
+
+unique.monet.frame <- function (x, incomparables = FALSE, fromLast = FALSE, ...) {
+	if (ncol(x) != 1) 
+		stop("tabulate() only defined for one-column frames, consider using $ first.")
+	as.vector(.col.func(x,"distinct",num=FALSE))
 }
 
 # overwrite non-generic functions sd and var

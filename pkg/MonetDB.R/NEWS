@@ -1,3 +1,8 @@
+0.6.4
+- tabulate() support
+- unique() support
+- bugfix in subset()
+
 0.6.3
 - Quieter startup
 - dbSendQuery() now fails if the query is bogus
