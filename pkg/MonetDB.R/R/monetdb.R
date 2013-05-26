@@ -19,7 +19,7 @@ MonetR <- MonetDB <- MonetDBR <- MonetDB.R <- function() {
 
 setMethod("dbGetInfo", "MonetDBDriver", def=function(dbObj, ...)
 			list(name="MonetDBDriver", 
-					driver.version="0.4.1",
+					driver.version="0.6.3",
 					DBI.version="0.2-5",
 					client.version=NA,
 					max.connections=NA)
@@ -47,7 +47,7 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
 		port <- 50000 # MonetDB default port.
 	}
 	
-	cat(paste0("II: Connecting to MonetDB on host ",host," at port ",port, " to DB ", dbname, " with user ", user," and a non-printed password, timeout is ",timeout," seconds.\n"))
+	if (DEBUG_QUERY) cat(paste0("II: Connecting to MonetDB on host ",host," at port ",port, " to DB ", dbname, " with user ", user," and a non-printed password, timeout is ",timeout," seconds.\n"))
 			
 	
 		
@@ -87,16 +87,17 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
 	.monetConnect(con,dbname,user,password)
 
 	
-	lockenv <- new.env(parent=emptyenv())
-	lockenv$lock <- 0
-	lockenv$deferred <- list()
+	connenv <- new.env(parent=emptyenv())
+	connenv$lock <- 0
+	connenv$deferred <- list()
+	connenv$exception <- list()
 					
-	new("MonetDBConnection",socket=con,lock=lockenv)},
+	new("MonetDBConnection",socket=con,connenv=connenv)},
 valueClass="MonetDBConnection")
 
 
 ### MonetDBConnection
-setClass("MonetDBConnection", representation("DBIConnection",socket="connection",lock="environment",fetchSize="integer"))
+setClass("MonetDBConnection", representation("DBIConnection",socket="connection",connenv="environment",fetchSize="integer"))
 
 setMethod("dbDisconnect", "MonetDBConnection", def=function(conn, ...) {
 	close(conn@socket)
@@ -120,6 +121,11 @@ setMethod("dbExistsTable", "MonetDBConnection", def=function(conn, name, ...) {
 })
 
 
+setMethod("dbGetException", "MonetDBConnection", def=function(conn, ...) {
+	conn@connenv$exception
+})
+
+
 setMethod("dbReadTable", "MonetDBConnection", def=function(conn, name, ...) {
 	if (!dbExistsTable(conn,name))
 		stop(paste0("Unknown table: ",name));
@@ -128,8 +134,6 @@ setMethod("dbReadTable", "MonetDBConnection", def=function(conn, name, ...) {
 
 setMethod("dbGetQuery", signature(conn="MonetDBConnection", statement="character"),  def=function(conn, statement, ...) {
 	res <- dbSendQuery(conn, statement, ...)
-	if (!res@env$success) 
-		stop(paste0("Unable to execute statement '",statement,"'.\nServer says '",res@env$message,"'."))
 	data <- fetch(res,-1)
 	dbClearResult(res)
 	return(data)
@@ -141,6 +145,7 @@ setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="characte
 		if (length(list(...))) statement <- .bindParameters(statement, list(...))
 		if (!is.null(list)) statement <- .bindParameters(statement, list)
 	}		
+	conn@connenv$exception <- list()
 	env <- NULL
 	if (DEBUG_QUERY)  cat(paste("QQ: '",statement,"'\n",sep=""))
 	resp <- .mapiParseResponse(.mapiRequest(conn,paste0("s",statement,";"),async=async))
@@ -170,6 +175,21 @@ setMethod("dbSendQuery", signature(conn="MonetDBConnection", statement="characte
 		env$info <- resp
 		env$message <- resp$message
 	}
+	
+	if (!env$success) {
+		sp <- strsplit(env$message,"!",fixed=T)[[1]]
+		if (length(sp) == 3) {
+			errno <- as.numeric(sp[[2]])
+			errmsg <- sp[[3]]
+			conn@connenv$exception <- list(errNum=errno,errMsg=errmsg)
+			stop(paste0("Unable to execute statement '",statement,"'.\nServer says '",errmsg,"' [#",errno,"]."))
+		}
+		else {
+			conn@connenv$exception <- list(errNum=-1,errMsg=env$message)
+			stop(paste0("Unable to execute statement '",statement,"'.\nServer says '",env$message,"'."))
+		}
+	}
+	
 	return(new("MonetDBResult",env=env))
 })
 			
@@ -305,8 +325,7 @@ monetdbRtype <- function(dbType) {
 # most of the heavy lifting here
 setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res, n, ...) {
 	if (!res@env$success) {
-		warning(paste0("Cannot fetch results from error response, error was ",res@env$info$message))
-		return(data.frame())
+		stop(paste0("Cannot fetch results from error response, error was ",res@env$info$message))
 	}
 	
 	# okay, so we arrive here with the tuples from the first result in res@env$data as a list
@@ -480,10 +499,10 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 		stop("I can only be called with a MonetDBConnection as parameter, not a socket.")
 	
 	# ugly effect of finalizers, sometimes, single-threaded R can get concurrent calls to this method.
-	if (conObj@lock$lock > 0) {
+	if (conObj@connenv$lock > 0) {
 		if (async) {
 			if (DEBUG_IO) cat(paste0("II: Attempted parallel access to socket. Deferred query '",msg,"'\n"))
-			conObj@lock$deferred <- c(conObj@lock$deferred,msg)
+			conObj@connenv$deferred <- c(conObj@connenv$deferred,msg)
 			return("_")
 		} else {
 			stop("II: Attempted parallel access to socket. Use only dbSendUpdateAsync() from finalizers.\n")
@@ -495,33 +514,33 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 	on.exit(.mapiCleanup(conObj),add=TRUE)
 	
 	# prevent other calls to .mapiRequest while we are doing something on this connection.
-	conObj@lock$lock <- 1
+	conObj@connenv$lock <- 1
 	
 	# send payload and read response		
 	.mapiWrite(conObj@socket,msg)
 	resp <- .mapiRead(conObj@socket)
 	
 	# get deferred statements from deferred list and execute
-	while (length(conObj@lock$deferred) > 0) {
+	while (length(conObj@connenv$deferred) > 0) {
 		# take element, execute, check response for prompt
-		dmesg <- conObj@lock$deferred[[1]]
-		conObj@lock$deferred[[1]] <- NULL
+		dmesg <- conObj@connenv$deferred[[1]]
+		conObj@connenv$deferred[[1]] <- NULL
 		.mapiWrite(conObj@socket,dmesg)
 		dresp <- .mapiParseResponse(.mapiRead(conObj@socket))
 		if (dresp$type == MSG_MESSAGE) {
-			conObj@lock$lock <- 0
+			conObj@connenv$lock <- 0
 			warning(paste("II: Failed to execute deferred statement '",dmesg,"'. Server said: '",dresp$message,"'\n"))
 		}
 	}	
 	# release lock
-	conObj@lock$lock <- 0
+	conObj@connenv$lock <- 0
 	return(resp)
 }
 
 .mapiCleanup <- function(conObj) {
-	if (conObj@lock$lock > 0) {
+	if (conObj@connenv$lock > 0) {
 		cat("II: Interrupted query execution. Beware that a long-running query in the MonetDB server is NOT affected by this, so please consider restarting the server & reopen the connection.\n")
-		conObj@lock$lock <- 0
+		conObj@connenv$lock <- 0
 	}
 }
 
@@ -722,16 +741,21 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 			stop(paste("Authentication error:",authResponse))
 		}
 	} else {
-		cat ("II: Authentication successful\n")		
+		if (DEBUG_QUERY) cat ("II: Authentication successful\n")		
 		.mapiWrite(con, paste0("Xreply_size ",REPLY_SIZE))
 		resp <- .mapiRead(con)
 	}
 }
 
 .hasColFunc <- function(conn,func) {
-	r <- dbSendQuery(conn,paste0("SELECT ",func,"(1);"))
-	r@env$success
-}
+	
+	tryCatch({
+				r <- dbSendQuery(conn,paste0("SELECT ",func,"(1);"))
+				TRUE
+			}, error = function(e) {
+				FALSE
+			})
+	}
 
 # copied from RMonetDB, no java-specific things in here...
 # TODO: read first few rows with read.table and check types etc.
