@@ -45,7 +45,7 @@ conn <span style="">&lt;-</span> dbConnect<span style="color: #009900;">&#40;</s
 dbWriteTable<span style="color: #009900;">&#40;</span>conn<span style="color: #339933;">,</span> <span style="color: #0000ff;">&quot;iris&quot;</span><span style="color: #339933;">,</span> <a href="http://inside-r.org/r-doc/datasets/iris"><span style="color: #003399; font-weight: bold;">iris</span></a><span style="color: #009900;">&#41;</span>
 &nbsp;
 <span style="color: #666666; font-style: italic;"># read data by SQL query</span>
-ds1 <span style="">&lt;-</span> dbGetQuery<span style="color: #009900;">&#40;</span>conn<span style="color: #339933;">,</span><span style="color: #0000ff;">&quot;SELECT mean(sepal_width) FROM iris;&quot;</span><span style="color: #009900;">&#41;</span>
+ds1 <span style="">&lt;-</span> dbGetQuery<span style="color: #009900;">&#40;</span>conn<span style="color: #339933;">,</span><span style="color: #0000ff;">&quot;SELECT avg(sepal_width) FROM iris&quot;</span><span style="color: #009900;">&#41;</span>
 &nbsp;
 <span style="color: #666666; font-style: italic;"># read data by virtual data object</span>
 mdf <span style="">&lt;-</span> monet.frame<span style="color: #009900;">&#40;</span>conn<span style="color: #339933;">,</span><span style="color: #0000ff;">&quot;iris&quot;</span><span style="color: #009900;">&#41;</span>
