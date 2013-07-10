@@ -899,14 +899,19 @@ is.vector.monet.frame <- function (x, mode = "any") {
 	return(ncol(x) == 1)
 }
 
-range.monet.frame <- function (x,na.rm=FALSE) {
+range.monet.frame <- function (...,na.rm=FALSE) {
+	nargs = length(list(...))
+	if (nargs != 1) stop("Need a parameter of type monet.frame")
+	x <- list(...)[[1]]
+	if (ncol(x) != 1) 
+		stop("range() only defined for one-column frames, consider using $ first.")
 	c(min(x,na.rm),max(x,na.rm))
 }
 
 
 # whoa, this is a beast. but it works, so all is well...
 tabulate.default <- function (bin, nbins = max(1L, bin, na.rm = TRUE)) base::tabulate (bin, nbins) 
-tabulate <- function (bin, ...) UseMethod("tabulate")
+tabulate <- function (bin, nbins = max(1L, bin, na.rm = TRUE)) UseMethod("tabulate")
 tabulate.monet.frame <- function (bin, nbins = max(bin)) {
 	if (ncol(bin) != 1) 
 		stop("tabulate() only defined for one-column frames, consider using $ first.")

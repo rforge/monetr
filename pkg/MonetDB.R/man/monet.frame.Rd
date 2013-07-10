@@ -73,6 +73,7 @@
          \item \code{\link[base]{merge}} -- Merge two \code{monet.frame} objects together using a DB JOIN operation
          \item \code{\link[base]{sort}} -- Sort a database column ascending or descending (only for single columns)
          \item \code{\link[base]{tabulate}} -- Counts the number of value occurences (only for single numerical columns)
+         \item \code{\link[base]{range}} -- Gives range of values (only for single numerical columns)
     
        }
 }
