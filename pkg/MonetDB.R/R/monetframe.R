@@ -943,7 +943,7 @@ tabulate.monet.frame <- function (bin, nbins = max(bin)) {
 
 unique.monet.frame <- function (x, incomparables = FALSE, fromLast = FALSE, ...) {
 	if (ncol(x) != 1) 
-		stop("tabulate() only defined for one-column frames, consider using $ first.")
+		stop("unique() only defined for one-column frames, consider using $ first.")
 	as.vector(.col.func(x,"distinct",num=FALSE,aggregate=TRUE))
 }
 
