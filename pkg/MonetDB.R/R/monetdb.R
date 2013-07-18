@@ -307,6 +307,7 @@ setClass("MonetDBResult", representation("DBIResult",env="environment"))
 
 monetdbRtype <- function(dbType) {
   dbType <- toupper(dbType)
+  
   if (dbType %in% c("TINYINT","SMALLINT","INT","BIGINT","REAL","DOUBLE","DECIMAL","WRD")) {			
     return("numeric")
   }
@@ -334,17 +335,14 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   
   # okay, so we arrive here with the tuples from the first result in res@env$data as a list
   info <- res@env$info
-  
   stopifnot(res@env$delivered <= info$rows, info$index <= info$rows)
-  
   remaining <- info$rows - res@env$delivered
   
   if (n < 0) {
     n <- remaining
   } else {
 	  n <- min(n,remaining)
-  }
-  
+  }  
   
   # prepare the result holder df with columns of the appropriate type
   df = list()
@@ -391,18 +389,21 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 	
     res@env$data <- c(res@env$data,cresp$tuples)
     info$index <- cresp$index
-	
   }
   
   # convert tuple string vector into matrix so we can access a single column efficiently
-  parts <- do.call("rbind", strsplit(res@env$data[1:n],",\t",fixed=TRUE,useBytes=TRUE))
+  #parts <- do.call("rbind", strsplit(res@env$data[1:n],",\t",fixed=TRUE,useBytes=TRUE))
   
+	rawdata <- gsub(",\t", "\t", res@env$data[1:n],fixed=T)
+	parts <- read.table(text=rawdata,sep="\t",stringsAsFactors=F,strip.white=T,as.is=T,quote="",colClasses="character")
+   
   # strip away the [ and ] from the first and last column, respectively
   parts[,1] <- substring(parts[,1],3)
-  parts[,info$cols] <- substring(parts[,info$cols],1,nchar(parts[,info$cols])-2)
+  #if (info$cols > 1)
+	  parts[,info$cols+1] <- NULL
   
   # translate "nothing" from SQL-ian to R-ese
-  parts[parts=="NULL"] <- NA
+  # TODO: Does this work? rather not.. parts[parts=="NULL"] <- NA
   
   # convert values column by column
   for (j in seq.int(info$cols)) {	
@@ -418,7 +419,7 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
       df[[j]] <- substring(strings,2,nchar(strings)-1)
     }
     if (col == .CT_RAW) {
-      df[[j]] <- lapply(parts[,j],charToRaw)
+		df[[j]] <- lapply(parts[,j],charToRaw)
     }
   }
   
@@ -434,6 +435,7 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   # this is a trick so we do not have to call data.frame(), which is expensive
   attr(df, "row.names") <- c(NA_integer_, length(df[[1]]))
   class(df) <- "data.frame"
+
   return(df)
 })
 
@@ -613,9 +615,9 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 
 # determines and partially parses the answer from the server in response to a query
 .mapiParseResponse <- function(response) {
-  lines <- strsplit(response,"\n",fixed=TRUE,useBytes=TRUE)
-  lines <- lines[[1]]
-  
+  # lines <- strsplit(response,"\n",fixed=TRUE,useBytes=TRUE)
+  lines <- read.table(text=response,sep="\n",stringsAsFactors=F,as.is=T,strip.white=T,quote="",colClasses="character")[[1]]
+   
   typeLine <- lines[[1]]
   resKey <- substring(typeLine,1,1)
   
