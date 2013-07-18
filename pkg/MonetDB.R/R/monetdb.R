@@ -49,8 +49,7 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
   
   if (DEBUG_QUERY) cat(paste0("II: Connecting to MonetDB on host ",host," at port ",port, " to DB ", dbname, " with user ", user," and a non-printed password, timeout is ",timeout," seconds.\n"))
   
-  
-  
+
   # initiate a starting timer
   start.timer <- Sys.time()
   # and initiate an error, so the while loop runs at least once.
@@ -215,10 +214,15 @@ setMethod("dbWriteTable", "MonetDBConnection", def=function(conn, name, value, o
   qname <- make.db.names(conn,name,allow.keywords=FALSE)
   ct <- paste("CREATE TABLE ",qname," (",fdef,")",sep= '')
   dbSendUpdate(conn, ct)
+  
   if (length(value[[1]])) {
     inss <- paste("INSERT INTO ",qname," VALUES(", paste(rep("?",length(value)),collapse=','),")",sep='')
-    for (j in 1:length(value[[1]])) dbSendUpdate(conn, inss, list=as.list(value[j,]))
-  }
+	
+	.mapiRequest(conn, "Xauto_commit 0")
+	for (j in 1:length(value[[1]])) dbSendUpdate(conn, inss, list=as.list(value[j,]))
+	dbSendQuery(conn,"COMMIT")
+	.mapiRequest(conn, "Xauto_commit 1")
+}
   TRUE
 })
 
@@ -330,13 +334,17 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   
   # okay, so we arrive here with the tuples from the first result in res@env$data as a list
   info <- res@env$info
-  totalRows <- info$rows
-  remaining <- totalRows -res@env$delivered
+  
+  stopifnot(res@env$delivered <= info$rows, info$index <= info$rows)
+  
+  remaining <- info$rows - res@env$delivered
   
   if (n < 0) {
     n <- remaining
+  } else {
+	  n <- min(n,remaining)
   }
-  n <- min(n,remaining)
+  
   
   # prepare the result holder df with columns of the appropriate type
   df = list()
@@ -368,19 +376,22 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   }
   
   # we have delivered everything, return empty df (spec is not clear on this one...)
-  if (n == 0) {
+  if (n <= 0) {
     return(data.frame(df))
   }
   
   # now, if our tuple cache in res@env$data does not contain n rows, we have to fetch from server until it does
   while (length(res@env$data) < n) {
-    cresp <- .mapiParseResponse(.mapiRequest(res@env$conn,paste0("Xexport ",info$id," ", info$index, " ",n)))
+    cresp <- .mapiParseResponse(.mapiRequest(res@env$conn,paste0("Xexport ",info$id," ", info$index, " ",max(n,PREFERRED_FETCH_SIZE))))
     if (cresp$type != Q_BLOCK) {
       print("Error getting continuation block")
       break;
     }
+	stopifnot(cresp$rows > 0)
+	
     res@env$data <- c(res@env$data,cresp$tuples)
-    info$index <- info$index + n
+    info$index <- cresp$index
+	
   }
   
   # convert tuple string vector into matrix so we can access a single column efficiently
@@ -426,6 +437,11 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   return(df)
 })
 
+
+
+
+
+
 setMethod("dbClearResult", "MonetDBResult",	def = function(res, ...) {
   .mapiRequest(res@env$conn,paste0("Xclose ",res@env$info$id),async=TRUE)
   TRUE	
@@ -458,7 +474,9 @@ setMethod("dbGetInfo", "MonetDBResult", def=function(dbObj, ...) {
 
 PROTOCOL_v8 <- 8
 PROTOCOL_v9 <- 9
-MAX_PACKET_SIZE <- 8192 #32766
+MAX_PACKET_SIZE <- 8192 # determined by fair guessing, haha
+
+PREFERRED_FETCH_SIZE <- 100
 
 HASH_ALGOS <- c("md5", "sha1", "crc32", "sha256","sha512")
 
@@ -655,7 +673,9 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
     }
     
     if (typeKey == Q_TRANSACTION) {
-      stop("Handling Q_TRANSACTION is NOT IMPLEMENTED YET")
+		env$type	<- Q_UPDATE
+		# TODO: actually check results of transaction...
+		return(env)
     }
     
   }
@@ -741,9 +761,12 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
       stop(paste("Authentication error:",authResponse))
     }
   } else {
-    if (DEBUG_QUERY) cat ("II: Authentication successful\n")		
+    if (DEBUG_QUERY) cat ("II: Authentication successful\n")
+	# setting some server parameters...
     .mapiWrite(con, paste0("Xreply_size ",REPLY_SIZE))
-    resp <- .mapiRead(con)
+	.mapiRead(con)
+	.mapiWrite(con, "Xauto_commit 1")
+	.mapiRead(con)
   }
 }
 

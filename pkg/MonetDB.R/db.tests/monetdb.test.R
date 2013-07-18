@@ -3,7 +3,7 @@ library(MonetDB.R)
 drv <- dbDriver("MonetDB")
 stopifnot(identical(dbGetInfo(drv)$name,"MonetDBDriver"))
 
-con <- dbConnect(drv, "monetdb://localhost:50000/acs", "monetdb", "monetdb",timeout=100)
+con <- dbConnect(drv, "monetdb://localhost:50000/acs", "monetdb", "monetdb",timeout=100,debug.queries=T)
 stopifnot(identical(class(con)[[1]],"MonetDBConnection"))
 
 # basic MAPI/SQL test
@@ -38,6 +38,7 @@ stopifnot(identical(dbListFields(con,"monetdbtest"),c("sepal_length","sepal_widt
 # get stuff, first very convenient
 iris2 <- dbReadTable(con,"monetdbtest")
 stopifnot(identical(dim(iris),dim(iris2)))
+
 
 # then manually
 res <- dbSendQuery(con,"SELECT species, sepal_width FROM monetdbtest")
