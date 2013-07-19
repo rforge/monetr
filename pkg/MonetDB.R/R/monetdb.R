@@ -338,6 +338,9 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   stopifnot(res@env$delivered <= info$rows, info$index <= info$rows)
   remaining <- info$rows - res@env$delivered
   
+  
+  #str(res@env$tuples)
+  
   if (n < 0) {
     n <- remaining
   } else {
@@ -380,12 +383,12 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   
   # now, if our tuple cache in res@env$data does not contain n rows, we have to fetch from server until it does
   while (length(res@env$data) < n) {
-    cresp <- .mapiParseResponse(.mapiRequest(res@env$conn,paste0("Xexport ",.mapiLongInt(info$id)," ", .mapiLongInt(info$index), " ", .mapiLongInt(min(MAX_FETCH_SIZE,max(n,PREFERRED_FETCH_SIZE))))))
+    cresp <- .mapiParseResponse(.mapiRequest(res@env$conn,paste0("Xexport ",.mapiLongInt(info$id)," ", .mapiLongInt(info$index), " ", .mapiLongInt(max(n,PREFERRED_FETCH_SIZE)))))
     if (cresp$type != Q_BLOCK) {
       stop("Error getting continuation block")
     }
 	stopifnot(cresp$rows > 0)
-	
+	# this c() is another candidate for performance problems
     res@env$data <- c(res@env$data,cresp$tuples)
     info$index <- info$index + cresp$rows
   }
@@ -400,6 +403,7 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   
 
 # call to a faster c implementation for the hard task of splitting everyting into fields
+
   parts <- .Call("mapiSplit", res@env$data[1:n],info$cols, PACKAGE="MonetDB.R")
   
   # translate "nothing" from SQL-ian to R-ese
@@ -476,8 +480,6 @@ PROTOCOL_v9 <- 9
 MAX_PACKET_SIZE <- 8192 # determined by fair guessing, haha
 
 PREFERRED_FETCH_SIZE <- 100
-MAX_FETCH_SIZE <- 100000
-
 
 HASH_ALGOS <- c("md5", "sha1", "crc32", "sha256","sha512")
 
@@ -620,9 +622,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 # determines and partially parses the answer from the server in response to a query
 .mapiParseResponse <- function(response) {
   lines <- strsplit(response,"\n",fixed=TRUE,useBytes=TRUE)[[1]]
-  # alternative implementation
-	#	lines <- read.table(text=response,sep="\n",stringsAsFactors=F,as.is=T,strip.white=T,quote="",colClasses="character")[[1]]
-   
+  
   typeLine <- lines[[1]]
   resKey <- substring(typeLine,1,1)
   
@@ -650,7 +650,11 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
       env$names	<- .mapiParseTableHeader(lines[3])
       env$types	<- env$dbtypes <- toupper(.mapiParseTableHeader(lines[4]))
       env$lengths	<- .mapiParseTableHeader(lines[5])
-      env$tuples	<- lines[6:length(lines)]
+     # env$tuples	<- list()
+	  #env$tuples <- c( env$tuples,lines[6:length(lines)])
+	env$tuples <-lines[6:length(lines)]
+			
+			  
       
       return(env)
     }
@@ -664,7 +668,11 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
       env$rows	<- header$rows
       env$cols	<- header$cols
       env$index	<- header$index
-      env$tuples	<- lines[2:length(lines)]
+     # env$tuples	<- list()
+	 # env$tuples <- c( env$tuples,lines[2:length(lines)])
+		env$tuples <- lines[2:length(lines)]
+		
+			  
       
       return(env)
     }
