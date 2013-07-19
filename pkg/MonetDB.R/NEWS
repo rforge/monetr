@@ -1,3 +1,9 @@
+0.7.3
+- c implementation of very expensive function
+
+0.7.2
+- fetch() performance enhancements and bug fixes
+
 0.7.1
 - minor fixes to fetch() function from basic DBI
 

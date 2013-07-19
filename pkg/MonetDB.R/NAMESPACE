@@ -78,6 +78,7 @@ export(monetdb.server.start)
 export(monetdb.server.stop)
 
 
+useDynLib(MonetDB.R)
 
 
 

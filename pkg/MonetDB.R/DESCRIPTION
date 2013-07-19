@@ -1,6 +1,6 @@
 Package: MonetDB.R
-Version: 0.7.1
-Date: 2013-07-18
+Version: 0.7.3
+Date: 2013-07-19
 Title: Connect MonetDB to R
 Authors@R: c(person("Hannes Muehleisen", "Developer", role = c("aut", "cre"),email = "hannes@cwi.nl"),
 	person("Thomas Lumley", "Contributor", role = "ctb"),

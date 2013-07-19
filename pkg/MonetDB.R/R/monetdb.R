@@ -380,27 +380,27 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   
   # now, if our tuple cache in res@env$data does not contain n rows, we have to fetch from server until it does
   while (length(res@env$data) < n) {
-    cresp <- .mapiParseResponse(.mapiRequest(res@env$conn,paste0("Xexport ",info$id," ", info$index, " ",max(n,PREFERRED_FETCH_SIZE))))
+    cresp <- .mapiParseResponse(.mapiRequest(res@env$conn,paste0("Xexport ",.mapiLongInt(info$id)," ", .mapiLongInt(info$index), " ", .mapiLongInt(min(MAX_FETCH_SIZE,max(n,PREFERRED_FETCH_SIZE))))))
     if (cresp$type != Q_BLOCK) {
-      print("Error getting continuation block")
-      break;
+      stop("Error getting continuation block")
     }
 	stopifnot(cresp$rows > 0)
 	
     res@env$data <- c(res@env$data,cresp$tuples)
-    info$index <- cresp$index
+    info$index <- info$index + cresp$rows
   }
   
   # convert tuple string vector into matrix so we can access a single column efficiently
-  #parts <- do.call("rbind", strsplit(res@env$data[1:n],",\t",fixed=TRUE,useBytes=TRUE))
+  # stupid MAPI, [,] and ,\t are completely unneccessary
+
+  #rawdata <- gsub(",\t", "\t", res@env$data[1:n],fixed=T)
+  #rawdata <- gsub("^\\[ ", "",rawdata)
+  #rawdata <- gsub("\t\\]$", "", rawdata)
+  #parts <- do.call("rbind", strsplit(rawdata,"\t",fixed=TRUE,useBytes=TRUE))
   
-	rawdata <- gsub(",\t", "\t", res@env$data[1:n],fixed=T)
-	parts <- read.table(text=rawdata,sep="\t",stringsAsFactors=F,strip.white=T,as.is=T,quote="",colClasses="character")
-   
-  # strip away the [ and ] from the first and last column, respectively
-  parts[,1] <- substring(parts[,1],3)
-  #if (info$cols > 1)
-	  parts[,info$cols+1] <- NULL
+
+# call to a faster c implementation for the hard task of splitting everyting into fields
+  parts <- .Call("mapiSplit", res@env$data[1:n],info$cols, PACKAGE="MonetDB.R")
   
   # translate "nothing" from SQL-ian to R-ese
   # TODO: Does this work? rather not.. parts[parts=="NULL"] <- NA
@@ -409,17 +409,18 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   for (j in seq.int(info$cols)) {	
     col <- ct[[j]]
     if (col == .CT_NUM) 
-      df[[j]] <- as.numeric(parts[,j])
+      df[[j]] <- as.numeric(parts[[j]])
     if (col == .CT_CHRR) 
-      df[[j]] <- parts[,j]
+      df[[j]] <- parts[[j]]
     if (col == .CT_BOOL) 
-      df[[j]] <- parts[,j]=="true"
+      df[[j]] <- parts[[j]]=="true"
     if (col == .CT_CHR) { 
-      strings <- parts[,j]	
-      df[[j]] <- substring(strings,2,nchar(strings)-1)
+      #strings <- parts[,j]	
+      #df[[j]] <- substring(strings,2,nchar(strings)-1)
+		df[[j]] <- parts[[j]]
     }
     if (col == .CT_RAW) {
-		df[[j]] <- lapply(parts[,j],charToRaw)
+		df[[j]] <- lapply(parts[[j]],charToRaw)
     }
   }
   
@@ -435,13 +436,9 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   # this is a trick so we do not have to call data.frame(), which is expensive
   attr(df, "row.names") <- c(NA_integer_, length(df[[1]]))
   class(df) <- "data.frame"
-
+  
   return(df)
 })
-
-
-
-
 
 
 setMethod("dbClearResult", "MonetDBResult",	def = function(res, ...) {
@@ -479,6 +476,8 @@ PROTOCOL_v9 <- 9
 MAX_PACKET_SIZE <- 8192 # determined by fair guessing, haha
 
 PREFERRED_FETCH_SIZE <- 100
+MAX_FETCH_SIZE <- 100000
+
 
 HASH_ALGOS <- c("md5", "sha1", "crc32", "sha256","sha512")
 
@@ -588,6 +587,11 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
   return(paste0("",resp,collapse=""))
 }
 
+.mapiLongInt <- function(someint) {
+	stopifnot(length(someint) == 1)
+	formatC(someint,format="d")
+}
+
 .mapiWrite <- function(con, msg) {
   final <- FALSE
   pos <- 0
@@ -615,8 +619,9 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 
 # determines and partially parses the answer from the server in response to a query
 .mapiParseResponse <- function(response) {
-  # lines <- strsplit(response,"\n",fixed=TRUE,useBytes=TRUE)
-  lines <- read.table(text=response,sep="\n",stringsAsFactors=F,as.is=T,strip.white=T,quote="",colClasses="character")[[1]]
+  lines <- strsplit(response,"\n",fixed=TRUE,useBytes=TRUE)[[1]]
+  # alternative implementation
+	#	lines <- read.table(text=response,sep="\n",stringsAsFactors=F,as.is=T,strip.white=T,quote="",colClasses="character")[[1]]
    
   typeLine <- lines[[1]]
   resKey <- substring(typeLine,1,1)
