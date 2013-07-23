@@ -4,13 +4,11 @@
 #include <string.h>
 #include <errno.h>
 
-
 typedef enum {
 	INQUOTES, ESCAPED, NORMAL
 } chrstate;
 
 char nullstr[] = "NULL";
-
 
 SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 	PROTECT(mapiLinesVector = AS_CHARACTER(mapiLinesVector));
@@ -58,15 +56,22 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 				}
 				if (chr == ',' || curPos == linelen - 2) {
 					int tokenLen = curPos - tokenStart + 1 - endQuote;
+					if (tokenLen < 1) {
+						printf("parsing error in '%s'\n", val);
+						return colVec;
+					}
 					char *valPtr = (char*) malloc(tokenLen * sizeof(char));
 					if (valPtr == NULL) {
-						printf("malloc() failed. Are you running out of memory? [%s]\n", strerror(errno));
+						printf(
+								"malloc() failed. Are you running out of memory? [%s]\n",
+								strerror(errno));
+						return colVec;
 					}
 					strncpy(valPtr, val + tokenStart, tokenLen);
 					valPtr[tokenLen - 1] = '\0';
 					SEXP colV = VECTOR_ELT(colVec, cCol);
 
-					if (strcmp(valPtr,nullstr) == 0) {
+					if (strcmp(valPtr, nullstr) == 0) {
 						SET_STRING_ELT(colV, cRow, NA_STRING);
 
 					} else {
