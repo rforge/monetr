@@ -382,8 +382,8 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   }
   
   # now, if our tuple cache in res@env$data does not contain n rows, we have to fetch from server until it does
-  while (length(res@env$data) < n) {
-    cresp <- .mapiParseResponse(.mapiRequest(res@env$conn,paste0("Xexport ",.mapiLongInt(info$id)," ", .mapiLongInt(info$index), " ", .mapiLongInt(max(n,PREFERRED_FETCH_SIZE)))))
+  if (length(res@env$data) < n) {
+    cresp <- .mapiParseResponse(.mapiRequest(res@env$conn,paste0("Xexport ",.mapiLongInt(info$id)," ", .mapiLongInt(info$index), " ", .mapiLongInt(n-length(res@env$data)))))
 	stopifnot(cresp$type == Q_BLOCK && cresp$rows > 0)
 	
 	res@env$data <- c(res@env$data,cresp$tuples)
@@ -472,8 +472,6 @@ setMethod("dbGetInfo", "MonetDBResult", def=function(dbObj, ...) {
 PROTOCOL_v8 <- 8
 PROTOCOL_v9 <- 9
 MAX_PACKET_SIZE <- 8192 # determined by fair guessing, haha
-
-PREFERRED_FETCH_SIZE <- 100
 
 HASH_ALGOS <- c("md5", "sha1", "crc32", "sha256","sha512")
 
@@ -652,9 +650,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
       env$types	<- env$dbtypes <- toupper(.mapiParseTableHeader(lines[4]))
       env$lengths	<- .mapiParseTableHeader(lines[5])
 
-	env$tuples <-lines[6:length(lines)]
-			
-			  
+	  env$tuples <-lines[6:length(lines)]
       
       return(env)
     }
@@ -668,10 +664,8 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
       env$rows	<- header$rows
       env$cols	<- header$cols
       env$index	<- header$index
-		env$tuples <- lines[2:length(lines)]
-		
-			  
-      
+	  env$tuples <- lines[2:length(lines)]
+
       return(env)
     }
     
