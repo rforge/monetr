@@ -377,19 +377,16 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   }
   
   # we have delivered everything, return empty df (spec is not clear on this one...)
-  if (n <= 0) {
+  if (n < 1) {
     return(data.frame(df))
   }
   
   # now, if our tuple cache in res@env$data does not contain n rows, we have to fetch from server until it does
   while (length(res@env$data) < n) {
     cresp <- .mapiParseResponse(.mapiRequest(res@env$conn,paste0("Xexport ",.mapiLongInt(info$id)," ", .mapiLongInt(info$index), " ", .mapiLongInt(max(n,PREFERRED_FETCH_SIZE)))))
-    if (cresp$type != Q_BLOCK) {
-      stop("Error getting continuation block")
-    }
-	stopifnot(cresp$rows > 0)
-	# this c() is another candidate for performance problems
-    res@env$data <- c(res@env$data,cresp$tuples)
+	stopifnot(cresp$type == Q_BLOCK && cresp$rows > 0)
+	
+	res@env$data <- c(res@env$data,cresp$tuples)
     info$index <- info$index + cresp$rows
   }
   
@@ -400,14 +397,11 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   #rawdata <- gsub("^\\[ ", "",rawdata)
   #rawdata <- gsub("\t\\]$", "", rawdata)
   #parts <- do.call("rbind", strsplit(rawdata,"\t",fixed=TRUE,useBytes=TRUE))
-  
+  #parts[parts=="NULL"] <- NA
 
-# call to a faster c implementation for the hard task of splitting everyting into fields
 
+  # call to a faster c implementation for the hard and annoying task of splitting everyting into fields
   parts <- .Call("mapiSplit", res@env$data[1:n],info$cols, PACKAGE="MonetDB.R")
-  
-  # translate "nothing" from SQL-ian to R-ese
-  # TODO: Does this work? rather not.. parts[parts=="NULL"] <- NA
   
   # convert values column by column
   for (j in seq.int(info$cols)) {	
@@ -512,6 +506,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 
 # this is a combination of read and write to synchronize access to the socket. 
 # otherwise, we could have issues with finalizers
+
 .mapiRequest <- function(conObj,msg,async=FALSE) {
   # call finalizers on disused objects. At least avoids concurrent access to socket.
   #gc()
@@ -555,6 +550,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
   }	
   # release lock
   conObj@connenv$lock <- 0
+    
   return(resp)
 }
 
@@ -580,9 +576,12 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
     # counting transmitted bytes
     counterenv$bytes.in <- counterenv$bytes.in + length
     
-    if (DEBUG_IO) cat(paste("II: Reading ",length," bytes, last: ",final==TRUE,"\n",sep=""))
+    # if (DEBUG_IO) cat(paste("II: Reading ",length," bytes, last: ",final==TRUE,"\n",sep=""))
     if (length == 0) break
-    resp <- c(resp,readChar(con, length, useBytes = TRUE))		
+    
+	#resp <- c(resp,readChar(con, length, useBytes = TRUE))		
+	resp[length(resp)+1] <- readChar(con, length, useBytes = TRUE)
+	
     if (final == 1) break
   }
   if (DEBUG_IO) cat(paste("RX: '",substring(paste0(resp,collapse=""),1,200),"'\n",sep=""))
@@ -609,7 +608,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
     # counting transmitted bytes
     counterenv$bytes.out <- counterenv$bytes.out + bytes
     
-    if (DEBUG_IO) cat(paste("II: Writing ",bytes," bytes, last: ",final,"\n",sep=""))
+   # if (DEBUG_IO) cat(paste("II: Writing ",bytes," bytes, last: ",final,"\n",sep=""))
     
     header <- as.integer(bitOr(bitShiftL(bytes,1),as.numeric(final)))
     writeBin(header, con, 2,endian="little")
@@ -621,7 +620,9 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 
 # determines and partially parses the answer from the server in response to a query
 .mapiParseResponse <- function(response) {
-  lines <- strsplit(response,"\n",fixed=TRUE,useBytes=TRUE)[[1]]
+  lines <- .Call("mapiSplitLines", response,PACKAGE="MonetDB.R")
+  #lines <- strsplit(response,"\n",fixed=TRUE,useBytes=TRUE)[[1]]
+	
   
   typeLine <- lines[[1]]
   resKey <- substring(typeLine,1,1)
@@ -650,8 +651,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
       env$names	<- .mapiParseTableHeader(lines[3])
       env$types	<- env$dbtypes <- toupper(.mapiParseTableHeader(lines[4]))
       env$lengths	<- .mapiParseTableHeader(lines[5])
-     # env$tuples	<- list()
-	  #env$tuples <- c( env$tuples,lines[6:length(lines)])
+
 	env$tuples <-lines[6:length(lines)]
 			
 			  
@@ -668,8 +668,6 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
       env$rows	<- header$rows
       env$cols	<- header$cols
       env$index	<- header$index
-     # env$tuples	<- list()
-	 # env$tuples <- c( env$tuples,lines[2:length(lines)])
 		env$tuples <- lines[2:length(lines)]
 		
 			  

@@ -7,6 +7,9 @@ typedef enum {
 	INQUOTES, ESCAPED, NORMAL
 } chrstate;
 
+char nullstr[] = "NULL";
+
+
 SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 	PROTECT(mapiLinesVector = AS_CHARACTER(mapiLinesVector));
 
@@ -32,7 +35,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 
 	for (cRow = 0; cRow < rows; cRow++) {
 		const char *val = CHAR(STRING_ELT(mapiLinesVector, cRow));
-		int strlen = LENGTH(STRING_ELT(mapiLinesVector, cRow));
+		int linelen = LENGTH(STRING_ELT(mapiLinesVector, cRow));
 
 		cCol = 0;
 		tokenStart = 2;
@@ -41,7 +44,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 
 		chrstate state = NORMAL;
 
-		for (curPos = 2; curPos < strlen - 1; curPos++) {
+		for (curPos = 2; curPos < linelen - 1; curPos++) {
 			char chr = val[curPos];
 
 			switch (state) {
@@ -51,15 +54,22 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					tokenStart++;
 					break;
 				}
-				if (chr == ',' || curPos == strlen - 2) {
+				if (chr == ',' || curPos == linelen - 2) {
 					int tokenLen = curPos - tokenStart + 1 - endQuote;
 					char *valPtr = (char*) malloc(tokenLen * sizeof(char));
 
 					strncpy(valPtr, val + tokenStart, tokenLen);
 					valPtr[tokenLen - 1] = '\0';
-
 					SEXP colV = VECTOR_ELT(colVec, cCol);
-					SET_STRING_ELT(colV, cRow, mkChar(valPtr));
+
+					if (strcmp(valPtr,nullstr) == 0) {
+						SET_STRING_ELT(colV, cRow, NA_STRING);
+
+					} else {
+						SET_STRING_ELT(colV, cRow, mkChar(valPtr));
+					}
+
+
 
 					free(valPtr);
 
@@ -90,4 +100,40 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 
 	UNPROTECT(2);
 	return colVec;
+}
+
+SEXP mapiSplitLines(SEXP mapiString) {
+
+	PROTECT(mapiString = AS_CHARACTER(mapiString));
+	assert(LENGTH(mapiString) == 1);
+
+	size_t arr_length = 100;
+	size_t arr_elements = 0;
+
+	char **array = (char**) malloc(arr_length * sizeof(char*));
+	const char *val = CHAR(STRING_ELT(mapiString, 0));
+	char *line;
+	char sep[] = "\n";
+
+	line = strtok((char * restrict) val, sep);
+	while (line != NULL) {
+		if (arr_elements >= arr_length) {
+			arr_length *= 2;
+			array = realloc(array, arr_length * sizeof(char*));
+		}
+		array[arr_elements] = line;
+		arr_elements++;
+
+		line = strtok(NULL, sep);
+	}
+	SEXP lineVec;
+	PROTECT(lineVec = NEW_STRING(arr_elements));
+
+	size_t curLine;
+	for (curLine = 0; curLine < arr_elements; curLine++) {
+		SET_STRING_ELT(lineVec, curLine, mkChar(array[curLine]));
+	}
+
+	UNPROTECT(2);
+	return lineVec;
 }
