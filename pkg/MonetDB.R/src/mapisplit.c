@@ -2,6 +2,8 @@
 #include <Rdefines.h>
 #include <assert.h>
 #include <string.h>
+#include <errno.h>
+
 
 typedef enum {
 	INQUOTES, ESCAPED, NORMAL
@@ -57,7 +59,9 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 				if (chr == ',' || curPos == linelen - 2) {
 					int tokenLen = curPos - tokenStart + 1 - endQuote;
 					char *valPtr = (char*) malloc(tokenLen * sizeof(char));
-
+					if (valPtr == NULL) {
+						printf("malloc() failed. Are you running out of memory? [%s]\n", strerror(errno));
+					}
 					strncpy(valPtr, val + tokenStart, tokenLen);
 					valPtr[tokenLen - 1] = '\0';
 					SEXP colV = VECTOR_ELT(colVec, cCol);
@@ -68,8 +72,6 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					} else {
 						SET_STRING_ELT(colV, cRow, mkChar(valPtr));
 					}
-
-
 
 					free(valPtr);
 
