@@ -33,6 +33,9 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 	int curPos;
 	int endQuote;
 
+	int bsize = 1024;
+	char *valPtr = (char*) malloc(bsize * sizeof(char));
+
 	for (cRow = 0; cRow < rows; cRow++) {
 		const char *val = CHAR(STRING_ELT(mapiLinesVector, cRow));
 		int linelen = LENGTH(STRING_ELT(mapiLinesVector, cRow));
@@ -58,13 +61,21 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					int tokenLen = curPos - tokenStart + 1 - endQuote;
 					if (tokenLen < 1) {
 						printf("parsing error in '%s'\n", val);
+						free(valPtr);
 						return colVec;
 					}
-					char *valPtr = (char*) malloc(tokenLen * sizeof(char));
+
+					// check if token fits in buffer, if not, realloc
+					if (tokenLen >= bsize) {
+						bsize *= 2;
+						valPtr = realloc(valPtr, bsize * sizeof(char*));
+					}
+
 					if (valPtr == NULL) {
 						printf(
 								"malloc() failed. Are you running out of memory? [%s]\n",
 								strerror(errno));
+						free(valPtr);
 						return colVec;
 					}
 					strncpy(valPtr, val + tokenStart, tokenLen);
@@ -78,7 +89,6 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 						SET_STRING_ELT(colV, cRow, mkChar(valPtr));
 					}
 
-					free(valPtr);
 
 					cCol++;
 					tokenStart = curPos + 2;
@@ -104,6 +114,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 			}
 		}
 	}
+	free(valPtr);
 
 	UNPROTECT(2);
 	return colVec;
