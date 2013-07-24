@@ -574,11 +574,11 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
     # counting transmitted bytes
     counterenv$bytes.in <- counterenv$bytes.in + length
     
-    # if (DEBUG_IO) cat(paste("II: Reading ",length," bytes, last: ",final==TRUE,"\n",sep=""))
+    if (DEBUG_IO) cat(paste("II: Reading ",length," bytes, last: ",final==TRUE,"\n",sep=""))
     if (length == 0) break
     
-	#resp <- c(resp,readChar(con, length, useBytes = TRUE))		
-	resp[length(resp)+1] <- readChar(con, length, useBytes = TRUE)
+	resp <- c(resp,readChar(con, length, useBytes = TRUE))		
+	#resp[length(resp)+1] <- readChar(con, length, useBytes = TRUE)
 	
     if (final == 1) break
   }

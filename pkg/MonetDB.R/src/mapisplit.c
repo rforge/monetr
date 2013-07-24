@@ -66,7 +66,6 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					int tokenLen = curPos - tokenStart - endQuote;
 					if (tokenLen < 1) {
 						printf("parsing error in '%s'\n", val);
-						free(valPtr);
 						return colVec;
 					}
 
@@ -84,6 +83,8 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 
 					strncpy(valPtr, val + tokenStart, tokenLen);
 					valPtr[tokenLen] = '\0';
+
+					assert(cCol < numCols);
 					SEXP colV = VECTOR_ELT(colVec, cCol);
 
 					if (strcmp(valPtr, nullstr) == 0) {
