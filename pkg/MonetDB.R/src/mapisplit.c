@@ -35,6 +35,11 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 
 	int bsize = 1024;
 	char *valPtr = (char*) malloc(bsize * sizeof(char));
+	if (valPtr == NULL) {
+		printf("malloc() failed. Are you running out of memory? [%s]\n",
+				strerror(errno));
+		return colVec;
+	}
 
 	for (cRow = 0; cRow < rows; cRow++) {
 		const char *val = CHAR(STRING_ELT(mapiLinesVector, cRow));
@@ -58,7 +63,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					break;
 				}
 				if (chr == ',' || curPos == linelen - 2) {
-					int tokenLen = curPos - tokenStart + 1 - endQuote;
+					int tokenLen = curPos - tokenStart - endQuote;
 					if (tokenLen < 1) {
 						printf("parsing error in '%s'\n", val);
 						free(valPtr);
@@ -66,29 +71,30 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					}
 
 					// check if token fits in buffer, if not, realloc
-					if (tokenLen >= bsize) {
+					while (tokenLen >= bsize) {
 						bsize *= 2;
 						valPtr = realloc(valPtr, bsize * sizeof(char*));
+						if (valPtr == NULL) {
+							printf(
+									"malloc() failed. Are you running out of memory? [%s]\n",
+									strerror(errno));
+							return colVec;
+						}
 					}
 
-					if (valPtr == NULL) {
-						printf(
-								"malloc() failed. Are you running out of memory? [%s]\n",
-								strerror(errno));
-						free(valPtr);
-						return colVec;
-					}
 					strncpy(valPtr, val + tokenStart, tokenLen);
-					valPtr[tokenLen - 1] = '\0';
+					valPtr[tokenLen] = '\0';
 					SEXP colV = VECTOR_ELT(colVec, cCol);
 
 					if (strcmp(valPtr, nullstr) == 0) {
 						SET_STRING_ELT(colV, cRow, NA_STRING);
 
 					} else {
-						SET_STRING_ELT(colV, cRow, mkChar(valPtr));
+						SEXP rval = mkChar(valPtr);
+						assert(rval != NULL);
+						assert (IS_CHARACTER( rval));
+						SET_STRING_ELT(colV, cRow, rval);
 					}
-
 
 					cCol++;
 					tokenStart = curPos + 2;
@@ -149,7 +155,10 @@ SEXP mapiSplitLines(SEXP mapiString) {
 
 	size_t curLine;
 	for (curLine = 0; curLine < arr_elements; curLine++) {
-		SET_STRING_ELT(lineVec, curLine, mkChar(array[curLine]));
+		SEXP rval = mkChar(array[curLine]);
+		assert(rval != NULL);
+		assert (IS_CHARACTER( rval));
+		SET_STRING_ELT(lineVec, curLine, rval);
 	}
 
 	UNPROTECT(2);
