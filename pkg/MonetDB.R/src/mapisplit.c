@@ -36,7 +36,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 	int bsize = 1024;
 	char *valPtr = (char*) malloc(bsize * sizeof(char));
 	if (valPtr == NULL) {
-		printf("malloc() failed. Are you running out of memory? [%s]\n",
+		REprintf("malloc() failed. Are you running out of memory? [%s]\n",
 				strerror(errno));
 		return colVec;
 	}
@@ -65,8 +65,9 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 				if (chr == ',' || curPos == linelen - 2) {
 					int tokenLen = curPos - tokenStart - endQuote;
 					if (tokenLen < 1) {
-						printf("parsing error in '%s'\n", val);
-						return colVec;
+						tokenStart = curPos + 1;
+						endQuote = 0;
+						break;
 					}
 
 					// check if token fits in buffer, if not, realloc
@@ -74,8 +75,8 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 						bsize *= 2;
 						valPtr = realloc(valPtr, bsize * sizeof(char*));
 						if (valPtr == NULL) {
-							printf(
-									"malloc() failed. Are you running out of memory? [%s]\n",
+							REprintf(
+									"realloc() failed. Are you running out of memory? [%s]\n",
 									strerror(errno));
 							return colVec;
 						}
@@ -91,10 +92,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 						SET_STRING_ELT(colV, cRow, NA_STRING);
 
 					} else {
-						SEXP rval = mkChar(valPtr);
-						assert(rval != NULL);
-						assert (IS_CHARACTER( rval));
-						SET_STRING_ELT(colV, cRow, rval);
+						SET_STRING_ELT(colV, cRow, mkCharLen(valPtr,tokenLen));
 					}
 
 					cCol++;
@@ -125,43 +123,4 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 
 	UNPROTECT(2);
 	return colVec;
-}
-
-SEXP mapiSplitLines(SEXP mapiString) {
-
-	PROTECT(mapiString = AS_CHARACTER(mapiString));
-	assert(LENGTH(mapiString) == 1);
-
-	size_t arr_length = 100;
-	size_t arr_elements = 0;
-
-	char **array = (char**) malloc(arr_length * sizeof(char*));
-	const char *val = CHAR(STRING_ELT(mapiString, 0));
-	char *line;
-	char sep[] = "\n";
-
-	line = strtok((char * restrict) val, sep);
-	while (line != NULL) {
-		if (arr_elements >= arr_length) {
-			arr_length *= 2;
-			array = realloc(array, arr_length * sizeof(char*));
-		}
-		array[arr_elements] = line;
-		arr_elements++;
-
-		line = strtok(NULL, sep);
-	}
-	SEXP lineVec;
-	PROTECT(lineVec = NEW_STRING(arr_elements));
-
-	size_t curLine;
-	for (curLine = 0; curLine < arr_elements; curLine++) {
-		SEXP rval = mkChar(array[curLine]);
-		assert(rval != NULL);
-		assert (IS_CHARACTER( rval));
-		SET_STRING_ELT(lineVec, curLine, rval);
-	}
-
-	UNPROTECT(2);
-	return lineVec;
 }
