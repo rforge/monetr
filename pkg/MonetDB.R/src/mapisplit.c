@@ -36,7 +36,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 	int bsize = 1024;
 	char *valPtr = (char*) malloc(bsize * sizeof(char));
 	if (valPtr == NULL) {
-		REprintf("malloc() failed. Are you running out of memory? [%s]\n",
+		error("malloc() failed. Are you running out of memory? [%s]\n",
 				strerror(errno));
 		return colVec;
 	}
@@ -63,19 +63,16 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					break;
 				}
 				if (chr == ',' || curPos == linelen - 2) {
-					int tokenLen = curPos - tokenStart - endQuote;
-					if (tokenLen < 1) {
-						tokenStart = curPos + 1;
-						endQuote = 0;
-						break;
-					}
+					assert(cCol < numCols);
 
+					int tokenLen = curPos - tokenStart - endQuote;
+		
 					// check if token fits in buffer, if not, realloc
 					while (tokenLen >= bsize) {
 						bsize *= 2;
 						valPtr = realloc(valPtr, bsize * sizeof(char*));
 						if (valPtr == NULL) {
-							REprintf(
+							error(
 									"realloc() failed. Are you running out of memory? [%s]\n",
 									strerror(errno));
 							return colVec;
@@ -88,7 +85,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					assert(cCol < numCols);
 					SEXP colV = VECTOR_ELT(colVec, cCol);
 
-					if (strcmp(valPtr, nullstr) == 0) {
+					if (tokenLen < 1 || strcmp(valPtr, nullstr) == 0) {
 						SET_STRING_ELT(colV, cRow, NA_STRING);
 
 					} else {

@@ -391,7 +391,7 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   }
   
   # convert tuple string vector into matrix so we can access a single column efficiently
-  # stupid MAPI, [,] and ,\t are completely unneccessary
+  # stupid MAPI, [, ] and , or \t are completely unneccessary
 
   #rawdata <- gsub(",\t", "\t", res@env$data[1:n],fixed=T)
   #rawdata <- gsub("^\\[ ", "",rawdata)
@@ -399,10 +399,9 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
   #parts <- do.call("rbind", strsplit(rawdata,"\t",fixed=TRUE,useBytes=TRUE))
   #parts[parts=="NULL"] <- NA
 
-
-  # call to a faster c implementation for the hard and annoying task of splitting everyting into fields
+  # call to a faster C implementation for the hard and annoying task of splitting everyting into fields
   parts <- .Call("mapiSplit", res@env$data[1:n],info$cols, PACKAGE="MonetDB.R")
-  
+    
   # convert values column by column
   for (j in seq.int(info$cols)) {	
     col <- ct[[j]]
@@ -581,7 +580,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 	#resp[length(resp)+1] <- readChar(con, length, useBytes = TRUE)
 	
     if (final == 1) break
-  }
+  }  
   if (DEBUG_IO) cat(paste("RX: '",substring(paste0(resp,collapse=""),1,200),"'\n",sep=""))
   return(paste0("",resp,collapse=""))
 }

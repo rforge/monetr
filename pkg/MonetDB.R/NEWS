@@ -1,3 +1,7 @@
+0.7.7
+- fix for aggregatef(), formula arguments were not evaluated in the right direction
+- support for mathematical operations on boolean columns
+
 0.7.6
 - fix for C implementation for line splitting
 
