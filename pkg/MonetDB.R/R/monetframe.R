@@ -157,7 +157,7 @@ as.vector.monet.frame <- av <- function(x,...) {
 			# remove old limit/offset from query
 			# TODO: is this safe? UNION queries are particularly dangerous, again...
 			nquery <- gsub("limit[ ]+\\d+|offset[ ]+\\d+","",nquery,ignore.case=TRUE)
-			nquery <- sub(";? *$",paste0(" LIMIT ",limit," OFFSET ",offset),nquery,ignore.case=TRUE)
+			nquery <- sub(";? *$",paste0(" LIMIT ",.mapiLongInt(limit)," OFFSET ",.mapiLongInt(offset)),nquery,ignore.case=TRUE)
 			nrow.hint <- limit
 		}
 		else 

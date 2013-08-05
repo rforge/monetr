@@ -1,3 +1,6 @@
+0.7.8
+- fix for [, large offsets are not translated to SQL correctly
+
 0.7.7
 - fix for aggregatef(), formula arguments were not evaluated in the right direction
 - support for mathematical operations on boolean columns
