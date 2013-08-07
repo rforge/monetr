@@ -66,7 +66,11 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					break;
 				}
 				if (chr == ',' || curPos == linelen - 2) {
-					assert(cCol < numCols);
+					if (cCol >= cols) {
+						error("Too many columns in '%s', max %d, have %d", val,
+								cols, cCol);
+					}
+					assert(cCol < cols);
 
 					int tokenLen = curPos - tokenStart - endQuote;
 
@@ -88,6 +92,9 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					assert(cCol < numCols);
 
 					SEXP colV = VECTOR_ELT(colVec, cCol);
+
+					assert(TYPEOF(colV) == STRSXP);
+
 					if (tokenLen < 1 || strcmp(valPtr, nullstr) == 0) {
 						SET_STRING_ELT(colV, cRow, NA_STRING);
 
