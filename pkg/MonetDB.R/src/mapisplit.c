@@ -24,7 +24,10 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 
 	int col;
 	for (col = 0; col < cols; col++) {
-		SET_ELEMENT(colVec, col, NEW_STRING(rows));
+		SEXP colV = PROTECT(NEW_STRING(rows));
+		assert(TYPEOF(colV) == STRSXP);
+		SET_ELEMENT(colVec, col, colV);
+		UNPROTECT(1);
 	}
 
 	int cRow;
@@ -66,7 +69,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					assert(cCol < numCols);
 
 					int tokenLen = curPos - tokenStart - endQuote;
-		
+
 					// check if token fits in buffer, if not, realloc
 					while (tokenLen >= bsize) {
 						bsize *= 2;
@@ -84,15 +87,13 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 
 					assert(cCol < numCols);
 
-					SEXP colV = PROTECT(VECTOR_ELT(colVec, cCol));
+					SEXP colV = VECTOR_ELT(colVec, cCol);
 					if (tokenLen < 1 || strcmp(valPtr, nullstr) == 0) {
 						SET_STRING_ELT(colV, cRow, NA_STRING);
 
 					} else {
-						SET_STRING_ELT(colV, cRow, PROTECT(mkCharLen(valPtr,tokenLen)));
-						UNPROTECT(1);
+						SET_STRING_ELT(colV, cRow, mkCharLen(valPtr, tokenLen));
 					}
-					UNPROTECT(1);
 					cCol++;
 					tokenStart = curPos + 2;
 					endQuote = 0;
