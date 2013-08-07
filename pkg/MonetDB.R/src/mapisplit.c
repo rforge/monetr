@@ -83,13 +83,14 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					valPtr[tokenLen] = '\0';
 
 					assert(cCol < numCols);
-					SEXP colV = PROTECT(VECTOR_ELT(colVec, cCol));
 
+					SEXP colV = PROTECT(VECTOR_ELT(colVec, cCol));
 					if (tokenLen < 1 || strcmp(valPtr, nullstr) == 0) {
 						SET_STRING_ELT(colV, cRow, NA_STRING);
 
 					} else {
-						SET_STRING_ELT(colV, cRow, mkCharLen(valPtr,tokenLen));
+						SET_STRING_ELT(colV, cRow, PROTECT(mkCharLen(valPtr,tokenLen)));
+						UNPROTECT(1);
 					}
 					UNPROTECT(1);
 					cCol++;
