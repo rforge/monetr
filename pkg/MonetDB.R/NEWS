@@ -1,3 +1,6 @@
+0.7.9
+- Changes in dbConnect() error handling
+
 0.7.8
 - fix for [, large offsets are not translated to SQL correctly
 

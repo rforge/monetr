@@ -3,7 +3,7 @@ require(bitops)
 require(digest)
 
 # TODO: make these values configurable in the call to dbConnect
-DEBUG_IO      <- TRUE
+DEBUG_IO      <- FALSE
 DEBUG_QUERY   <- FALSE
 
 # Make S4 aware of S3 classes
