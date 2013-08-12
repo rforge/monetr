@@ -53,8 +53,9 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
 		repeat {
             continue <- FALSE
 			tryCatch ({
+						# open socket with 5-sec timeout so we can check whether everything works
                     socket <- socket <<- socketConnection(host = host, port = port, 
-						blocking = TRUE, open="r+b",timeout = timeout ) 
+						blocking = TRUE, open="r+b",timeout = 5 ) 
 					.monetConnect(socket,dbname,user,password)
                     # test the connection to make sure it works before
                     .mapiWrite(socket,"sSELECT 42;"); .mapiRead(socket)
@@ -73,6 +74,12 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv, url, user="monetdb", p
             if (!(continue)) break
 		}
         
+		# make new socket with user-specified timeout
+		close(socket)
+		socket <- socket <<- socketConnection(host = host, port = port, 
+				blocking = TRUE, open="r+b",timeout = timeout) 
+		.monetConnect(socket,dbname,user,password)
+		
 		connenv <- new.env(parent=emptyenv())
 		connenv$lock <- 0
 		connenv$deferred <- list()
@@ -814,12 +821,10 @@ monet.read.csv <- monetdb.read.csv <- function(conn,files,tablename,nrows,header
 }
 
 counterenv <- new.env(parent=emptyenv())
-counterenv$bytes.in <- 0
-counterenv$bytes.out <- 0
+counterenv$bytes.in <-  	counterenv$bytes.out <- numeric(1)
 
 monetdbGetTransferredBytes <- function() {
 	ret <- list(bytes.in=counterenv$bytes.in,bytes.out=counterenv$bytes.out)
-	counterenv$bytes.in <- 0
-	counterenv$bytes.out <- 0
+	counterenv$bytes.in <-  	counterenv$bytes.out <- numeric(1)
 	ret
 }

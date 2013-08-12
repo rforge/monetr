@@ -5,7 +5,7 @@
 #include <errno.h>
 
 typedef enum {
-	INQUOTES, ESCAPED, NORMAL
+	INQUOTES, ESCAPED, INTOKEN, INCRAP
 } chrstate;
 
 char nullstr[] = "NULL";
@@ -53,27 +53,30 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 		curPos = 0;
 		endQuote = 0;
 
-		chrstate state = NORMAL;
+		chrstate state = INCRAP;
 
 		for (curPos = 2; curPos < linelen - 1; curPos++) {
 			char chr = val[curPos];
 
 			switch (state) {
-			case NORMAL:
-				if (chr == '"') {
-					state = INQUOTES;
-					tokenStart++;
-					break;
-				}
-				if (chr == ',' || curPos == linelen - 2) {
-					if (cCol >= cols) {
-						error("Too many columns in '%s', max %d, have %d", val,
-								cols, cCol);
+			case INCRAP:
+				if (chr != '\t' && chr != ',') {
+					tokenStart = curPos;
+					if (chr == '"') {
+						state = INQUOTES;
+						tokenStart++;
 					}
-					assert(cCol < cols);
+					else {
+						state = INTOKEN;
+					}
+				}
+				break;
+			case INTOKEN:
+				if (chr == ',' || curPos == linelen - 2) {
+					// we thing we are at the end of a token, so copy the token from the line and add to result
 
+					// copy from line, extend buffer if required
 					int tokenLen = curPos - tokenStart - endQuote;
-
 					// check if token fits in buffer, if not, realloc
 					while (tokenLen >= bsize) {
 						bsize *= 2;
@@ -85,25 +88,29 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 							return colVec;
 						}
 					}
-
 					strncpy(valPtr, val + tokenStart, tokenLen);
 					valPtr[tokenLen] = '\0';
 
-					assert(cCol < numCols);
-
+					// get correct column vector from result set and set element
+					if (cCol >= cols) {
+						warning(
+								"Unreadable line from server response (#%d/%d).",
+								cRow, rows);
+						continue;
+					}
+					assert(cCol < cols);
 					SEXP colV = VECTOR_ELT(colVec, cCol);
-
-					assert(TYPEOF(colV) == STRSXP);
-
 					if (tokenLen < 1 || strcmp(valPtr, nullstr) == 0) {
 						SET_STRING_ELT(colV, cRow, NA_STRING);
 
 					} else {
 						SET_STRING_ELT(colV, cRow, mkCharLen(valPtr, tokenLen));
 					}
+
 					cCol++;
-					tokenStart = curPos + 2;
+					// reset
 					endQuote = 0;
+					state = INCRAP;
 				}
 
 				break;
@@ -113,7 +120,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 				break;
 			case INQUOTES:
 				if (chr == '"') {
-					state = NORMAL;
+					state = INTOKEN;
 					endQuote++;
 					break;
 				}
