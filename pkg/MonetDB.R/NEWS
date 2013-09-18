@@ -1,6 +1,7 @@
 0.8
 - New All-C socket code (Thanks, Windows)
 - new dbConnect() parameter organization (!)
+- new mc() shorthand method for db connections
 
 0.7.10
 - More tip-toeing around in dbConnect()
