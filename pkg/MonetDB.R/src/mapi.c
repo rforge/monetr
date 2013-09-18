@@ -26,7 +26,7 @@
 #define TRUE 1
 #define FALSE 0
 #define ALLOCSIZE 1048576 // 1 MB
-#define DEBUG TRUE
+#define DEBUG FALSE
 
 SEXP mapiConnect(SEXP host, SEXP port, SEXP timeout) {
 	// be a bit paranoid about the parameters
@@ -51,14 +51,18 @@ SEXP mapiConnect(SEXP host, SEXP port, SEXP timeout) {
 	struct addrinfo hints;
 	struct addrinfo *result, *rp;
 #ifdef __WIN32__
+	// I will not even TRY to understand why this is required
 	WSADATA wsaData;
-	// Initialize Winsock
 	int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
 	if (iResult != 0) {
-		printf("WSAStartup failed: %d\n", iResult);
-		return 1;
+		error("WSAStartup failed: %d", iResult);
 	}
 #endif
+
+	//  send/receive timeouts for socket
+	struct timeval sto;
+	sto.tv_sec = timeoutval;
+	sto.tv_usec = 0;
 
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
@@ -70,32 +74,49 @@ SEXP mapiConnect(SEXP host, SEXP port, SEXP timeout) {
 
 	int s = getaddrinfo(hostval, portvalstr, &hints, &result);
 	if (s != 0) {
-		error("XX: ERROR, failed to resolve host %s\n", hostval);
+		error("ERROR, failed to resolve host %s", hostval);
 	}
 
 	for (rp = result; rp != NULL; rp = rp->ai_next) {
 		sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 		if (sock == -1)
 			continue;
-		if (connect(sock, rp->ai_addr, rp->ai_addrlen) != -1)
+
+		if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &sto,
+				sizeof(sto)) < 0) {
+			error("setsockopt failed");
+		}
+		if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char *) &sto,
+				sizeof(sto)) < 0) {
+			error("setsockopt failed\n");
+		}
+		// lets have a 1M buffer on this socket, ok?
+		int recvbuf_size = ALLOCSIZE;
+
+		if (setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &recvbuf_size,
+				sizeof(recvbuf_size))) {
+			error("setsockopt failed");
+		}
+		if (connect(sock, rp->ai_addr, rp->ai_addrlen) != -1) {
+			if (DEBUG) {
+				printf("II: Connected to %s:%s\n", hostval, portvalstr);
+			}
 			break; /* Success */
+		}
 		close(sock);
 	}
 
 	if (rp == NULL) { /* No address succeeded */
-		error("Could not connect to %s:%i\n", hostval, portval);
+		error("Could not connect to %s:%i", hostval, portval);
 	}
+	freeaddrinfo(result);
 
-	// setting send/receive timeouts for socket
-	struct timeval sto;
-	sto.tv_sec = timeoutval;
-	sto.tv_usec = 0;
 	if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &sto, sizeof(sto))
 			< 0)
-		error("XX: setsockopt failed\n");
+		error("setsockopt failed");
 	if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char *) &sto, sizeof(sto))
 			< 0)
-		error("XX: setsockopt failed\n");
+		error("setsockopt failed");
 
 	// construct a r object of class monetdb_mapi_conn with an attribute holding the connection id
 	PROTECT(connobj = ScalarInteger(1));
@@ -129,7 +150,7 @@ SEXP mapiRead(SEXP conn) {
 
 	char* response_buf = malloc(response_buf_len);
 	if (response_buf == NULL) {
-		error("XX: ERROR allocating memory");
+		error("ERROR allocating memory");
 	}
 
 	block_final = FALSE;
@@ -137,19 +158,23 @@ SEXP mapiRead(SEXP conn) {
 		//  read block header and extract block length and final bit from header
 		// this assumes little-endianness (so sue me)
 
-		n = read(sock, (void *) &header, 2);
+		n = recv(sock, (void *) &header, 2, MSG_WAITALL);
 		if (n != 2) {
-			error("XX: ERROR reading MAPI block header");
+			error("ERROR reading MAPI block header (%d)", n);
 		}
 		block_length = header >> 1;
 		if (block_length < 0 || block_length > BLOCKSIZE) {
-			error("XX: Invalid block size %i\n", block_length);
+			error("Invalid block size %i\n", block_length);
 		}
 		block_final = header & 1;
-		n = read(sock, read_buf, block_length);
-		if (n != block_length) {
-			error("XX: ERROR reading block of %u bytes (final=%s) from socket",
-					block_length, block_final ? "true" : "false");
+
+		if (block_length > 0) {
+			n = recv(sock, read_buf, block_length, MSG_WAITALL);
+			if (n != block_length) {
+				error(
+						"ERROR reading block of %u bytes (final=%s) from socket (%d)",
+						block_length, block_final ? "true" : "false", n);
+			}
 		}
 		if (DEBUG) {
 			printf("II: Received block of %u bytes, final=%s\n", block_length,
@@ -165,7 +190,7 @@ SEXP mapiRead(SEXP conn) {
 			}
 			response_buf = realloc(response_buf, response_buf_len);
 			if (response_buf == NULL) {
-				error("XX: ERROR allocating memory");
+				error("ERROR allocating memory");
 			}
 		}
 		// now that we know to have enough space in the buffer, let's copy
@@ -211,13 +236,13 @@ SEXP mapiWrite(SEXP conn, SEXP message) {
 		if (block_final) {
 			header |= 1;
 		}
-		n = write(sock, (void *) &header, 2);
+		n = send(sock, (void *) &header, 2, 0);
 		if (n != 2) {
-			error("XX: ERROR writing MAPI block header");
+			error("ERROR writing MAPI block header");
 		}
-		n = write(sock, messageval + request_offset, block_length);
+		n = send(sock, messageval + request_offset, block_length, 0);
 		if (n != block_length) {
-			error("XX: ERROR writing block of %u bytes (final=%s) to socket",
+			error("ERROR writing block of %u bytes (final=%s) to socket",
 					block_length, block_final ? "true" : "false");
 		}
 		request_offset += block_length;
