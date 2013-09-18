@@ -3,9 +3,13 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
+#ifdef __WIN32__
+# include <winsock2.h>
+#else
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#endif
 #include <assert.h>
 #include <fcntl.h>
 
@@ -51,9 +55,9 @@ SEXP mapiConnect(SEXP host, SEXP port, SEXP timeout) {
 		error("XX: ERROR, no such host as %s\n", hostval);
 	}
 
-	bzero((char *) &serveraddr, sizeof(serveraddr));
+	memset((char *) &serveraddr, '\0', sizeof(serveraddr));
 	serveraddr.sin_family = AF_INET;
-	bcopy((char *) server->h_addr, (char *) &serveraddr.sin_addr.s_addr,
+	memcpy((char *) server->h_addr, (char *) &serveraddr.sin_addr.s_addr,
 			server->h_length);
 	serveraddr.sin_port = htons(portval);
 
