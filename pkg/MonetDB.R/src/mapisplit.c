@@ -65,8 +65,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 					if (chr == '"') {
 						state = INQUOTES;
 						tokenStart++;
-					}
-					else {
+					} else {
 						state = INTOKEN;
 					}
 				}
@@ -96,6 +95,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 						warning(
 								"Unreadable line from server response (#%d/%d).",
 								cRow, rows);
+						curPos = linelen;
 						continue;
 					}
 					assert(cCol < cols);
@@ -131,6 +131,7 @@ SEXP mapiSplit(SEXP mapiLinesVector, SEXP numCols) {
 				break;
 			}
 		}
+		assert(cCol == cols - 1);
 	}
 	free(valPtr);
 
