@@ -4,7 +4,8 @@
 #include <unistd.h>
 #include <sys/types.h>
 #ifdef __WIN32__
-# include <winsock2.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #else
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -25,7 +26,7 @@
 #define TRUE 1
 #define FALSE 0
 #define ALLOCSIZE 1048576 // 1 MB
-#define DEBUG FALSE
+#define DEBUG TRUE
 
 SEXP mapiConnect(SEXP host, SEXP port, SEXP timeout) {
 	// be a bit paranoid about the parameters
@@ -46,31 +47,43 @@ SEXP mapiConnect(SEXP host, SEXP port, SEXP timeout) {
 
 	SEXP connobj, class, attr;
 	SOCKET sock;
-	struct sockaddr_in serveraddr;
-	struct hostent *server;
 
-	// resolve server address
-	server = gethostbyname(hostval);
-	if (server == NULL) {
-		error("XX: ERROR, no such host as %s\n", hostval);
+	struct addrinfo hints;
+	struct addrinfo *result, *rp;
+#ifdef __WIN32__
+	WSADATA wsaData;
+	// Initialize Winsock
+	int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
+	if (iResult != 0) {
+		printf("WSAStartup failed: %d\n", iResult);
+		return 1;
+	}
+#endif
+
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+
+	char portvalstr[15];
+	sprintf(portvalstr, "%d", portval);
+
+	int s = getaddrinfo(hostval, portvalstr, &hints, &result);
+	if (s != 0) {
+		error("XX: ERROR, failed to resolve host %s\n", hostval);
 	}
 
-	memset((char *) &serveraddr, '\0', sizeof(serveraddr));
-	serveraddr.sin_family = AF_INET;
-	memcpy((char *) server->h_addr, (char *) &serveraddr.sin_addr.s_addr,
-			server->h_length);
-	serveraddr.sin_port = htons(portval);
-
-	// create socket
-	sock = socket(AF_INET, SOCK_STREAM, 0);
-	if (sock < 0) {
-		error("XX: ERROR opening socket");
+	for (rp = result; rp != NULL; rp = rp->ai_next) {
+		sock = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+		if (sock == -1)
+			continue;
+		if (connect(sock, rp->ai_addr, rp->ai_addrlen) != -1)
+			break; /* Success */
+		close(sock);
 	}
 
-	// actually connect
-	if (connect(sock, (const struct sockaddr *) &serveraddr, sizeof(serveraddr))
-			< 0) {
-		error("XX: ERROR connecting to %s:%i\n", hostval, portval);
+	if (rp == NULL) { /* No address succeeded */
+		error("Could not connect to %s:%i\n", hostval, portval);
 	}
 
 	// setting send/receive timeouts for socket

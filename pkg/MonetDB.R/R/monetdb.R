@@ -57,10 +57,10 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv,dbname="demo", user="mo
 					tryCatch ({
 								# open socket with 5-sec timeout so we can check whether everything works
 								#socket <- socket <<- socketConnection(host = host, port = port, 
-									#	blocking = TRUE, open="r+b",timeout = 5 )
+								#	blocking = TRUE, open="r+b",timeout = 5 )
 								
 								# this goes to src/mapi.c
-								socket <- socket <<- .Call("mapiConnect","localhost",50000,5)
+								socket <- socket <<- .Call("mapiConnect",host,port,5)
 								# authenticate
 								.monetAuthenticate(socket,dbname,user,password)
 								# test the connection to make sure it works before
@@ -81,8 +81,8 @@ setMethod("dbConnect", "MonetDBDriver", def=function(drv,dbname="demo", user="mo
 			
 			# make new socket with user-specified timeout
 			#socket <- socket <<- socketConnection(host = host, port = port, 
-				#	blocking = TRUE, open="r+b",timeout = timeout) 
-			socket <- socket <<- .Call("mapiConnect","localhost",50000,5)
+			#	blocking = TRUE, open="r+b",timeout = timeout) 
+			socket <- socket <<- .Call("mapiConnect",host,port,5)
 			.monetAuthenticate(socket,dbname,user,password)
 			connenv <- new.env(parent=emptyenv())
 			connenv$lock <- 0
