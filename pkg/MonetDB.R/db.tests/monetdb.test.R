@@ -81,4 +81,7 @@ stopifnot(identical(dbExistsTable(con,"monetdbtest"),FALSE))
 
 
 stopifnot(identical(dbDisconnect(con),TRUE))
+#twice to catch pointer errors
+stopifnot(identical(dbDisconnect(con),TRUE))
+
 print("SUCCESS")
