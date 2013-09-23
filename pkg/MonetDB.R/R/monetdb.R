@@ -1,6 +1,8 @@
 require(DBI)
 require(digest)
 
+C_LIBRARY <- "MonetDB.R"
+
 .onLoad <- function(lib, pkg) {
 	library.dynam( C_LIBRARY, pkg, lib )
 	.Call("mapiInit",PACKAGE=C_LIBRARY)
@@ -10,7 +12,6 @@ require(digest)
 DEBUG_IO      <- FALSE
 DEBUG_QUERY   <- FALSE
 
-C_LIBRARY <- "MonetDB.R"   <- FALSE
 
 
 # Make S4 aware of S3 classes
@@ -26,7 +27,7 @@ MonetR <- MonetDB <- MonetDBR <- MonetDB.R <- function() {
 
 setMethod("dbGetInfo", "MonetDBDriver", def=function(dbObj, ...)
 			list(name="MonetDBDriver", 
-					driver.version="0.7.11",
+					driver.version="0.8.0",
 					DBI.version="0.2-5",
 					client.version=NA,
 					max.connections=NA)
@@ -539,7 +540,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 	#.mapiWrite(conObj@socket,msg)
 	#resp <- .mapiRead(conObj@socket)
 	
-	respstr <- .Call("mapiRequest",con,msg,PACKAGE=C_LIBRARY)
+	resp <- .Call("mapiRequest",conObj@socket,msg,PACKAGE=C_LIBRARY)
 	
 	# get deferred statements from deferred list and execute
 	while (length(conObj@connenv$deferred) > 0) {

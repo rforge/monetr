@@ -149,11 +149,6 @@ SEXP mapiConnect(SEXP host, SEXP port, SEXP timeout) {
 	return connobj;
 }
 
-SEXP mapiRequest(SEXP conn, SEXP message) {
-	mapiWrite(conn, message);
-	return (mapiRead(conn));
-}
-
 SEXP mapiRead(SEXP conn) {
 	CHECK_MAPI_SOCK(conn);
 	SOCKET sock = *((SOCKET*) R_ExternalPtrAddr(conn));
@@ -265,4 +260,9 @@ SEXP mapiWrite(SEXP conn, SEXP message) {
 		request_offset += block_length;
 	}
 	return R_NilValue;
+}
+
+SEXP mapiRequest(SEXP conn, SEXP message) {
+	mapiWrite(conn, message);
+	return (mapiRead(conn));
 }
