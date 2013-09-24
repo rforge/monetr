@@ -84,9 +84,14 @@ SEXP mapiConnect(SEXP host, SEXP port, SEXP timeout) {
 #endif
 
 	//  send/receive timeouts for socket
+#ifdef __WIN32__
+	int sto;
+	sto = timeoutval * 1000;
+#else
 	struct timeval sto;
 	sto.tv_sec = timeoutval;
 	sto.tv_usec = 0;
+#endif
 
 	memset(&hints, 0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
@@ -106,11 +111,11 @@ SEXP mapiConnect(SEXP host, SEXP port, SEXP timeout) {
 		if (sock == -1)
 			continue;
 
-		if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *) &sto,
+		if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *) &sto,
 				sizeof(sto)) < 0) {
 			error("setsockopt failed");
 		}
-		if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char *) &sto,
+		if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char *) &sto,
 				sizeof(sto)) < 0) {
 			error("setsockopt failed\n");
 		}
@@ -151,25 +156,33 @@ SEXP mapiConnect(SEXP host, SEXP port, SEXP timeout) {
 }
 
 size_t sockRead(int fd, void *buf, size_t size) {
-	ssize_t retval;
-	do
+	ssize_t retval = -1;
+	do {
 		retval = recv(fd, buf, size, MSG_WAITALL);
-	while (retval == -1 && errno == EINTR);
-	if (retval == -1)
+	} while (retval == -1 && errno == EINTR);
+	if (retval == -1) {
+#ifdef __WIN32__
+		errno = WSAGetLastError();
+#endif
 		error("error reading from socket (%d)", errno);
-	else
+	} else {
 		return retval;
+	}
 }
 
 size_t sockWrite(int fd, const void *buf, size_t size) {
-	ssize_t retval;
-	do
+	ssize_t retval = -1;
+	do {
 		retval = send(fd, buf, size, 0);
-	while (retval == -1 && errno == EINTR);
-	if (retval == -1)
+	} while (retval == -1 && errno == EINTR);
+	if (retval == -1) {
+#ifdef __WIN32__
+		errno = WSAGetLastError();
+#endif
 		error("error writing to socket (%d)", errno);
-	else
+	} else {
 		return retval;
+	}
 }
 
 SEXP mapiRead(SEXP conn) {
@@ -211,11 +224,11 @@ SEXP mapiRead(SEXP conn) {
 						block_length, block_final ? "true" : "false", n);
 			}
 		}
+		read_buf[block_length] = '\0';
 		if (DEBUG) {
 			printf("II: Received block of %u bytes, final=%s\n", block_length,
 					block_final ? "true" : "false");
 		}
-		read_buf[block_length] = '\0';
 		// lets see whether we need moar memory for the response
 		while (response_buf_offset + block_length > response_buf_len) {
 			response_buf_len += ALLOCSIZE;
@@ -232,8 +245,21 @@ SEXP mapiRead(SEXP conn) {
 		memcpy(response_buf + response_buf_offset, read_buf, block_length);
 		response_buf_offset += block_length;
 	}
-
 	response_buf[response_buf_offset] = '\0';
+
+	// We have this issue that on Windows sometimes a \0 appears in the middle of the response...
+	// since it always appears instead of a \t, let's replace it for now and pray
+	// MonetDB Bug #3369 http://bugs.monetdb.org/show_bug.cgi?id=3369
+#ifdef __WIN32__
+	size_t i;
+	for (i = 0; i < response_buf_offset; i++) {
+		if (response_buf[i] == '\0') {
+			warning("Removed a NULL character from response at offset %lu of %lu",i,response_buf_offset);
+			response_buf[i] = '\t';
+		}
+	}
+#endif
+
 	PROTECT(lines = NEW_STRING(1));
 	SET_STRING_ELT(lines, 0, mkChar(response_buf));
 	free(response_buf);
