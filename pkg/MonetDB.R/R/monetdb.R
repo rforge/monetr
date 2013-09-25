@@ -569,7 +569,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 
 .mapiCleanup <- function(conObj) {
 	if (conObj@connenv$lock > 0) {
-		if (DEBUG) cat("II: Interrupted query execution.\n")
+		if (DEBUG_QUERY) cat("II: Interrupted query execution.\n")
 		conObj@connenv$lock <- 0
 	}
 }
