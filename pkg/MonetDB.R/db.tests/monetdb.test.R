@@ -5,6 +5,10 @@ stopifnot(identical(dbGetInfo(drv)$name,"MonetDBDriver"))
 
 con <- dbConnect(drv, "monetdb://localhost:50000/acs", "monetdb", "monetdb",timeout=100,debug.queries=T)
 stopifnot(identical(class(con)[[1]],"MonetDBConnection"))
+# overwrite variable to force destructor
+con <- dbConnect(drv, "monetdb://localhost:50000/acs", "monetdb", "monetdb",timeout=100,debug.queries=T)
+con <- dbConnect(drv, "monetdb://localhost:50000/acs", "monetdb", "monetdb",timeout=100,debug.queries=T)
+gc()
 
 # basic MAPI/SQL test
 stopifnot(identical(dbGetQuery(con,"SELECT 'DPFKG!'")[[1]],"DPFKG!"))
@@ -81,6 +85,9 @@ stopifnot(identical(dbExistsTable(con,"monetdbtest"),FALSE))
 
 
 stopifnot(identical(dbDisconnect(con),TRUE))
-#twice to catch pointer errors
+stopifnot(identical(dbDisconnect(con),TRUE))
+stopifnot(identical(dbDisconnect(con),TRUE))
+
+#thrice to catch pointer errors
 
 print("SUCCESS")

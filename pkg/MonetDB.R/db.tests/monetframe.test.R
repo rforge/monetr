@@ -4,6 +4,7 @@ con <- dbConnect(dbDriver("MonetDB"), "monetdb://localhost:50000/acs", "monetdb"
 
 table <- "monetframetest"
 
+
 fcmp <- function(f1,f2,epsilon) {
 	abs(f1-f2) < epsilon
 }
@@ -69,6 +70,6 @@ stopifnot(fcmp(
 	var(frame$sepal_width)
 ,0.1))
 
-
+dbRemoveTable(con,table)
 dbDisconnect(con)
 print("SUCCESS")
