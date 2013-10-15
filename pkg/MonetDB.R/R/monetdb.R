@@ -245,7 +245,7 @@ setMethod("dbDataType", signature(dbObj="MonetDBConnection", obj = "ANY"), def =
 			else if (is.numeric(obj)) "DOUBLE PRECISION"
 			else if (is.raw(obj)) "BLOB"
 			
-			else "VARCHAR(255)"
+			else "STRING"
 		}, valueClass = "character")
 
 

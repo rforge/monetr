@@ -1,3 +1,6 @@
+0.8.1
+- fixed bug in dbWriteTable() where VARCHAR(255) was used for character data instead of STRING
+
 0.8
 - New All-C socket code (Thanks, Windows)
 - new dbConnect() parameter organization (!)
