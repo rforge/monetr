@@ -1,3 +1,6 @@
+0.8.2
+- fixed bug in dbConnect() where port and timeout were not always integer values
+
 0.8.1
 - fixed bug in dbWriteTable() where VARCHAR(255) was used for character data instead of STRING
 
