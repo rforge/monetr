@@ -27,7 +27,7 @@ MonetR <- MonetDB <- MonetDBR <- MonetDB.R <- function() {
 
 setMethod("dbGetInfo", "MonetDBDriver", def=function(dbObj, ...)
 			list(name="MonetDBDriver", 
-					driver.version="0.8.2",
+					driver.version="0.8.3",
 					DBI.version="0.2-5",
 					client.version=NA,
 					max.connections=NA)
@@ -415,7 +415,7 @@ setMethod("fetch", signature(res="MonetDBResult", n="numeric"), def=function(res
 			#parts[parts=="NULL"] <- NA
 			
 			# call to a faster C implementation for the hard and annoying task of splitting everyting into fields
-			parts <- .Call("mapiSplit", res@env$data[1:n],info$cols, PACKAGE=C_LIBRARY)
+			parts <- .Call("mapiSplit", res@env$data[1:n],as.integer(info$cols), PACKAGE=C_LIBRARY)
 			
 			# convert values column by column
 			for (j in seq.int(info$cols)) {	

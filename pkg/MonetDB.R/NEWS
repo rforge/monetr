@@ -1,3 +1,6 @@
+0.8.3
+- fixed a problem where integer SEXPs turned to double somehow
+
 0.8.2
 - fixed bug in dbConnect() where port and timeout were not always integer values
 
