@@ -34,7 +34,7 @@ setMethod("dbGetInfo", "MonetDBDriver", def=function(dbObj, ...)
 )
 
 # shorthand for connecting to the DB, very handy, e.g. dbListTables(mc("acs"))
-mc <- function(dbname="demo", user="monetdb", password="monetdb", host="localhost",port=50000, timeout=86400, wait=FALSE,...) {
+mc <- function(dbname="demo", user="monetdb", password="monetdb", host="localhost",port=50000L, timeout=86400L, wait=FALSE,...) {
 	dbConnect(MonetDB.R(),dbname,user,password,host,port,timeout,wait,...)
 }
 
@@ -645,8 +645,8 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 			env$types	<- env$dbtypes <- toupper(.mapiParseTableHeader(lines[4]))
 			env$lengths	<- .mapiParseTableHeader(lines[5])
 			
-			env$tuples <-lines[6:length(lines)]
-
+			if (env$rows > 0) env$tuples <- lines[6:length(lines)]
+			
 			stopifnot(length(env$tuples) == header$index)
 			return(env)
 		}
