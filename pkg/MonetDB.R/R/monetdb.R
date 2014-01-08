@@ -796,7 +796,7 @@ REPLY_SIZE    <- 100 # Apparently, -1 means unlimited, but we will start with a 
 
 monet.read.csv <- monetdb.read.csv <- function(conn,files,tablename,nrows,header=TRUE,locked=FALSE,na.strings="",...,nrow.check=500,delim=",",newline="\\n",quote="\""){
 	if (length(na.strings)>1) stop("na.strings must be of length 1")
-	headers<-lapply(files,read.csv,na.strings="NA",...,nrows=nrow.check)
+	headers<-lapply(files,read.csv,na.strings="NA",quote=quote,...,nrows=nrow.check)
 	
 	if (length(files)>1){
 		nn<-sapply(headers,ncol)
