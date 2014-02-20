@@ -20,19 +20,19 @@
 <body>
    <div class="yui3-u">
    	<h1>MonetDB.R - MonetDB to R Connector</h1>
-   		<p>MonetDB.R is a R extension to connect the Open-Source database <a href="http://www.monetdb.org/">MonetDB</a> with R. Using this extension, data that is stored can be used in R analyses with better performance. MonetDB.R is also an <a href="https://r-forge.r-project.org/scm/?group_id=1534">Open-Source project</a>, and we welcome your contributions. The connector consists of two parts: A general-purpose <a href="http://cran.r-project.org/web/packages/DBI/index.html">DBI</a> driver for MonetDB and a virtual data object. MonetDB.R is written in plain R and has no non-R dependencies (except of course MonetDB).</p>
-   		<img src="monetdbr-perf.png">
+   		<p>MonetDB.R is a R extension to connect the Open-Source database <a href="http://www.monetdb.org/">MonetDB</a> with R. Using this extension, data that is stored can be used in R analyses with better performance. MonetDB.R is also an <a href="https://r-forge.r-project.org/scm/?group_id=1534">Open-Source project</a>, and we welcome your contributions. The connector provides a general-purpose <a href="http://cran.r-project.org/web/packages/DBI/index.html">DBI</a> driver for MonetDB.</p>
+   		<!--<img src="monetdbr-perf.png">-->
    	<h2>Installation</h2>
    		<p>You will need to download and install MonetDB and the MonetDB.R connector package. Install a stable version of MonetDB.R from <a href="http://cran.r-project.org/web/packages/MonetDB.R/index.html">CRAN</a> by typing in an R session:</p>
 	   
 	   <div style="overflow:auto;"><div class="geshifilter"><pre class="r geshifilter-R" style="font-family:monospace;"><a href="http://inside-r.org/r-doc/utils/install.packages"><span style="color: #003399; font-weight: bold;">install.packages</span></a><span style="color: #009900;">&#40;</span><span style="color: #0000ff;">&quot;MonetDB.R&quot;</span><span style="color: #009900;">&#41;</span></pre></div></div>
 
-	   <p>If you like to live dangerous, you can also install the development version in a second step:</p>
-	   <div style="overflow:auto;"><div class="geshifilter"><pre class="r geshifilter-R" style="font-family:monospace;"><a href="http://inside-r.org/r-doc/utils/install.packages"><span style="color: #003399; font-weight: bold;">install.packages</span></a><span style="color: #009900;">&#40;</span><span style="color: #0000ff;">&quot;MonetDB.R&quot;</span><span style="color: #339933;">,</span> repos=<span style="color: #0000ff;">&quot;http://R-Forge.R-project.org&quot;</span><span style="color: #009900;">&#41;</span></pre></div></div>
+	   <!--<p>If you like to live dangerous, you can also install the development version in a second step:</p>
+	   <div style="overflow:auto;"><div class="geshifilter"><pre class="r geshifilter-R" style="font-family:monospace;"><a href="http://inside-r.org/r-doc/utils/install.packages"><span style="color: #003399; font-weight: bold;">install.packages</span></a><span style="color: #009900;">&#40;</span><span style="color: #0000ff;">&quot;MonetDB.R&quot;</span><span style="color: #339933;">,</span> repos=<span style="color: #0000ff;">&quot;http://R-Forge.R-project.org&quot;</span><span style="color: #009900;">&#41;</span></pre></div></div> -->
 
 
 	<h2>Data Loading</h2>
-	<p>Your data will have to be <a href="http://www.monetdb.org/Documentation/Manuals/SQLreference/CopyInto">imported into MonetDB</a> first. <!--If you are lazy, you can use <a href="">this "smart" loader</a> to speed up the process.--></p> 
+	<p>Your data will have to be <a href="http://www.monetdb.org/Documentation/Manuals/SQLreference/CopyInto">imported into MonetDB</a> first. You might find the <code>monetdb.read.csv()</code> function helpful. <!--If you are lazy, you can use <a href="">this "smart" loader</a> to speed up the process.--></p> 
    
 	<h2>Usage Example</h2>
 
@@ -45,22 +45,15 @@ conn <span style="">&lt;-</span> dbConnect<span style="color: #009900;">&#40;</s
 dbWriteTable<span style="color: #009900;">&#40;</span>conn<span style="color: #339933;">,</span> <span style="color: #0000ff;">&quot;iris&quot;</span><span style="color: #339933;">,</span> <a href="http://inside-r.org/r-doc/datasets/iris"><span style="color: #003399; font-weight: bold;">iris</span></a><span style="color: #009900;">&#41;</span>
 &nbsp;
 <span style="color: #666666; font-style: italic;"># read data by SQL query</span>
-ds1 <span style="">&lt;-</span> dbGetQuery<span style="color: #009900;">&#40;</span>conn<span style="color: #339933;">,</span><span style="color: #0000ff;">&quot;SELECT avg(sepal_width) FROM iris&quot;</span><span style="color: #009900;">&#41;</span>
-&nbsp;
-<span style="color: #666666; font-style: italic;"># read data by virtual data object</span>
-mdf <span style="">&lt;-</span> monet.frame<span style="color: #009900;">&#40;</span>conn<span style="color: #339933;">,</span><span style="color: #0000ff;">&quot;iris&quot;</span><span style="color: #009900;">&#41;</span>
-ds2 <span style="">&lt;-</span> <a href="http://inside-r.org/r-doc/base/mean"><span style="color: #003399; font-weight: bold;">mean</span></a><span style="color: #009900;">&#40;</span>mdf<span style="">$</span>sepal_width<span style="color: #009900;">&#41;</span>
-&nbsp;
-<span style="color: #666666; font-style: italic;"># ds1 and ds2 are equivalent</span></pre></div></div>
+ds1 <span style="">&lt;-</span> dbGetQuery<span style="color: #009900;">&#40;</span>conn<span style="color: #339933;">,</span><span style="color: #0000ff;">&quot;SELECT avg(sepal_width) FROM iris&quot;</span><span style="color: #009900;">&#41;</span></pre></div></div>
 
 	<h2>Documentation</h2>
 		<p>After installation, you may access the built-in documentation by typing the following commands in an R session:</p>
 		
 <div style="overflow:auto;"><div class="geshifilter"><pre class="r geshifilter-R" style="font-family:monospace;"><a href="http://inside-r.org/r-doc/base/library"><span style="color: #003399; font-weight: bold;">library</span></a><span style="color: #009900;">&#40;</span>MonetDB.R<span style="color: #009900;">&#41;</span>
-<span style="">?</span>MonetDB.R
-<span style="">?</span>monet.frame</pre></div></div>
+<span style="">?</span>MonetDB.R</pre></div></div>
 
-	   	<p>There is also a Web version of the documentation on the two main commands <a href="http://www.inside-r.org/packages/cran/MonetDB.R/docs/MonetDB.R">MonetDB.R</a> and the <a href="http://www.inside-r.org/packages/cran/MonetDB.R/docs/monet.frame">monet.frame</a> virtual data object. For even more information, consider <a href="http://hannes.muehleisen.org/SSDBM2013-databases-and-statistics.pdf">our scientific paper on MonetDB.R</a>.
+	   	<p>There is also a Web version of the documentation for <a href="http://www.inside-r.org/packages/cran/MonetDB.R/docs/MonetDB.R">MonetDB.R</a>. The <code>monet.frame</code> virtual data object has been moved to a separate package and is <a href="https://github.com/hannesmuehleisen/monet.frame">hosted on GitHub</a>. For even more information, consider <a href="http://hannes.muehleisen.org/SSDBM2013-databases-and-statistics.pdf">our scientific paper on MonetDB.R</a>.
 
 	<h2>People</h2>
 		<p>MonetDB.R is developed within the <a href="http://www.cwi.nl/research-groups/Database-Architectures">Database Architectures Group</a> at <a href="http://www.cwi.nl">CWI</a> in Amsterdam by <a href="http://hannes.muehleisen.org">Hannes M&uuml;hleisen</a> with contributions from <a href="http://www.stat.auckland.ac.nz/showperson?firstname=Thomas&amp;surname=Lumley">Thomas Lumley</a> and <a href="http://www.asdfree.com/">Anthony Damico</a>.</p>
